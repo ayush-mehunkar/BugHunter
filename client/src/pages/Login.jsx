@@ -84,28 +84,35 @@ function Login() {
 
         <br />
 
+        <div>
+          <Link to="/forgot-password">
+            Forgot Password?
+          </Link>
+        </div>
+
+        <br />
+
         {error && (
-          <div>
+        <div>
             <strong>Error:</strong> {error}
-          </div>
+        </div>
         )}
 
         <br />
 
         <button type="submit" disabled={loading}>
-          {loading ? "Logging in..." : "Login"}
+        {loading ? "Logging in..." : "Login"}
         </button>
-      </form>
+    </form>
 
-      <br />
+    <br />
 
-      <div>
+    <div>
         <span>Don't have an account? </span>
         <Link to="/register">Register</Link>
-      </div>
     </div>
-  );
+    </div>
+);
 }
 
 export default Login;
-

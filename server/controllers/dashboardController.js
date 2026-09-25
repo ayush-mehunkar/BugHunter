@@ -1,9 +1,24 @@
+const mongoose = require("mongoose");
+
 const Bug = require("../models/Bug");
 const Project = require("../models/Project");
+
+const getOrganizationId = (req) => {
+  return req.user?.organizationId || null;
+};
 
 // Get dashboard summary
 const getDashboardSummary = async (req, res) => {
   try {
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "User is not associated with an organization.",
+      });
+    }
+
     const [
       totalBugs,
       openBugs,
@@ -13,16 +28,35 @@ const getDashboardSummary = async (req, res) => {
       reopenedBugs,
       totalProjects,
     ] = await Promise.all([
-      Bug.countDocuments(),
-      Bug.countDocuments({ status: "Open" }),
-      Bug.countDocuments({ status: "In Progress" }),
-      Bug.countDocuments({ status: "Resolved" }),
-      Bug.countDocuments({ status: "Closed" }),
-      Bug.countDocuments({ status: "Reopened" }),
-      Project.countDocuments(),
+      Bug.countDocuments({
+        organization: organizationId,
+      }),
+      Bug.countDocuments({
+        organization: organizationId,
+        status: "Open",
+      }),
+      Bug.countDocuments({
+        organization: organizationId,
+        status: "In Progress",
+      }),
+      Bug.countDocuments({
+        organization: organizationId,
+        status: "Resolved",
+      }),
+      Bug.countDocuments({
+        organization: organizationId,
+        status: "Closed",
+      }),
+      Bug.countDocuments({
+        organization: organizationId,
+        status: "Reopened",
+      }),
+      Project.countDocuments({
+        organization: organizationId,
+      }),
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       summary: {
         totalBugs,
@@ -40,10 +74,9 @@ const getDashboardSummary = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch dashboard summary",
-      error: error.message,
     });
   }
 };
@@ -51,7 +84,31 @@ const getDashboardSummary = async (req, res) => {
 // Get bugs grouped by status
 const getBugStatusStats = async (req, res) => {
   try {
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "User is not associated with an organization.",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid organization.",
+      });
+    }
+
+    const organizationObjectId =
+      new mongoose.Types.ObjectId(organizationId);
+
     const statusStats = await Bug.aggregate([
+      {
+        $match: {
+          organization: organizationObjectId,
+        },
+      },
       {
         $group: {
           _id: "$status",
@@ -65,7 +122,7 @@ const getBugStatusStats = async (req, res) => {
       },
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       stats: statusStats,
     });
@@ -75,10 +132,9 @@ const getBugStatusStats = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch bug status statistics",
-      error: error.message,
     });
   }
 };
@@ -86,7 +142,31 @@ const getBugStatusStats = async (req, res) => {
 // Get bugs grouped by priority
 const getBugPriorityStats = async (req, res) => {
   try {
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "User is not associated with an organization.",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid organization.",
+      });
+    }
+
+    const organizationObjectId =
+      new mongoose.Types.ObjectId(organizationId);
+
     const priorityStats = await Bug.aggregate([
+      {
+        $match: {
+          organization: organizationObjectId,
+        },
+      },
       {
         $group: {
           _id: "$priority",
@@ -100,7 +180,7 @@ const getBugPriorityStats = async (req, res) => {
       },
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       stats: priorityStats,
     });
@@ -110,10 +190,9 @@ const getBugPriorityStats = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch bug priority statistics",
-      error: error.message,
     });
   }
 };
@@ -121,7 +200,31 @@ const getBugPriorityStats = async (req, res) => {
 // Get project health statistics
 const getProjectHealth = async (req, res) => {
   try {
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "User is not associated with an organization.",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid organization.",
+      });
+    }
+
+    const organizationObjectId =
+      new mongoose.Types.ObjectId(organizationId);
+
     const projectHealth = await Bug.aggregate([
+      {
+        $match: {
+          organization: organizationObjectId,
+        },
+      },
       {
         $group: {
           _id: "$project",
@@ -171,7 +274,7 @@ const getProjectHealth = async (req, res) => {
       },
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       projects: projectHealth,
     });
@@ -181,10 +284,9 @@ const getProjectHealth = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch project health statistics",
-      error: error.message,
     });
   }
 };

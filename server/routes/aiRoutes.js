@@ -28,7 +28,7 @@ router.get(
 router.get(
   "/duplicate-check/:bugId",
   protect,
-  checkDuplicateBug
+checkDuplicateBug
 );
 
 module.exports = router;

@@ -6,3 +6,5 @@ ai-service/venv/
 __pycache__/
 *.pyc
 .sf/
+uploads/
+server/uploads/

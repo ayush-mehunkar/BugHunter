@@ -47,14 +47,8 @@ function Dashboard() {
         ]);
 
         setSummary(summaryResponse.summary || null);
-
-        // Backend returns: { success: true, stats: [...] }
         setStatusStats(statusResponse.stats || []);
-
-        // Backend returns: { success: true, stats: [...] }
         setPriorityStats(priorityResponse.stats || []);
-
-        // Backend returns: { success: true, projects: [...] }
         setProjectHealth(projectHealthResponse.projects || []);
       } catch (err) {
         console.error("Dashboard loading error:", err);
@@ -71,234 +65,406 @@ function Dashboard() {
     loadDashboard();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+  const statCards = [
+    {
+      label: "Total Bugs",
+      value: summary?.totalBugs ?? 0,
+      icon: "🐞",
+      className: "dashboard-stat-primary",
+    },
+    {
+      label: "Open Bugs",
+      value: summary?.openBugs ?? 0,
+      icon: "○",
+      className: "dashboard-stat-warning",
+    },
+    {
+      label: "In Progress",
+      value: summary?.inProgressBugs ?? 0,
+      icon: "◐",
+      className: "dashboard-stat-info",
+    },
+    {
+      label: "Resolved",
+      value: summary?.resolvedBugs ?? 0,
+      icon: "✓",
+      className: "dashboard-stat-success",
+    },
+    {
+      label: "Closed",
+      value: summary?.closedBugs ?? 0,
+      icon: "●",
+      className: "dashboard-stat-neutral",
+    },
+    {
+      label: "Reopened",
+      value: summary?.reopenedBugs ?? 0,
+      icon: "↻",
+      className: "dashboard-stat-danger",
+    },
+    {
+      label: "Projects",
+      value: summary?.totalProjects ?? 0,
+      icon: "▣",
+      className: "dashboard-stat-purple",
+    },
+  ];
 
-    window.location.href = "/login";
-  };
+  if (loading) {
+    return (
+      <div className="dashboard-page">
+        <div className="dashboard-header">
+          <div>
+            <div className="dashboard-eyebrow">Workspace</div>
+
+            <h1>Dashboard</h1>
+
+            <p>
+              Loading your QA workspace...
+            </p>
+          </div>
+        </div>
+
+        <div className="dashboard-loading">
+          <div className="loading-spinner" />
+
+          <span>
+            Loading dashboard data...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-page">
+        <div className="dashboard-header">
+          <div>
+            <div className="dashboard-eyebrow">
+              Workspace
+            </div>
+
+            <h1>Dashboard</h1>
+
+            <p>
+              Monitor bugs, projects and QA activity.
+            </p>
+          </div>
+        </div>
+
+        <div className="dashboard-error">
+          <div className="dashboard-error-icon">
+            !
+          </div>
+
+          <div>
+            <h3>
+              Unable to load dashboard
+            </h3>
+
+            <p>{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div
-      style={{
-        padding: "30px",
-        maxWidth: "1200px",
-        margin: "0 auto",
-      }}
-    >
-      <h1>BugHunter Dashboard</h1>
+    <div className="dashboard-page">
+      {/* Dashboard Header */}
 
-      <p>
-        Welcome, <strong>{user?.name || "User"}</strong>
-      </p>
+      <section className="dashboard-header">
+        <div>
+          <div className="dashboard-eyebrow">
+            Workspace overview
+          </div>
 
-      <p>
-        Role: <strong>{user?.role || "Unknown"}</strong>
-      </p>
+          <h1>
+            Welcome back, {user?.name || "User"} 👋
+          </h1>
 
-      <button
-        onClick={handleLogout}
-        style={{
-          padding: "9px 16px",
-          border: "none",
-          borderRadius: "7px",
-          cursor: "pointer",
-        }}
-      >
-        Logout
-      </button>
+          <p>
+            Here's what's happening across your projects
+            and QA workflow.
+          </p>
+        </div>
 
-      {loading && (
-        <p style={{ marginTop: "30px" }}>
-          Loading dashboard...
-        </p>
-      )}
+        <div className="dashboard-header-actions">
+          <span className="dashboard-role-badge">
+            {user?.role || "User"}
+          </span>
 
-      {error && (
-        <p
-          style={{
-            color: "#dc2626",
-            marginTop: "30px",
-          }}
-        >
-          {error}
-        </p>
-      )}
+          <a
+            href="/bugs/create"
+            className="dashboard-primary-action"
+          >
+            <span>+</span>
+            Report Bug
+          </a>
 
-      {!loading && !error && (
-        <>
-          {/* Bug Overview */}
+          <a
+            href="/bugs"
+            className="dashboard-secondary-action"
+          >
+            View Bugs
+          </a>
+        </div>
+      </section>
 
-          <section style={{ marginTop: "30px" }}>
-            <h2>Bug Overview</h2>
+      {/* KPI Cards */}
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(150px, 1fr))",
-                gap: "15px",
-              }}
-            >
-              <div>
-                <h3>Total Bugs</h3>
-                <p>{summary?.totalBugs ?? 0}</p>
-              </div>
-
-              <div>
-                <h3>Open Bugs</h3>
-                <p>{summary?.openBugs ?? 0}</p>
-              </div>
-
-              <div>
-                <h3>In Progress</h3>
-                <p>{summary?.inProgressBugs ?? 0}</p>
-              </div>
-
-              <div>
-                <h3>Resolved</h3>
-                <p>{summary?.resolvedBugs ?? 0}</p>
-              </div>
-
-              <div>
-                <h3>Closed</h3>
-                <p>{summary?.closedBugs ?? 0}</p>
-              </div>
-
-              <div>
-                <h3>Reopened</h3>
-                <p>{summary?.reopenedBugs ?? 0}</p>
-              </div>
-
-              <div>
-                <h3>Total Projects</h3>
-                <p>{summary?.totalProjects ?? 0}</p>
+      <section className="dashboard-stats-grid">
+        {statCards.map((card) => (
+          <div
+            className={`dashboard-stat-card ${card.className}`}
+            key={card.label}
+          >
+            <div className="dashboard-stat-top">
+              <div className="dashboard-stat-icon">
+                {card.icon}
               </div>
             </div>
-          </section>
 
-          {/* Bug Status Chart */}
+            <div className="dashboard-stat-value">
+              {card.value}
+            </div>
 
-          <section style={{ marginTop: "40px" }}>
-            <h2>Bug Status</h2>
+            <div className="dashboard-stat-label">
+              {card.label}
+            </div>
+          </div>
+        ))}
+      </section>
 
-            {statusStats.length === 0 && (
-              <p>No bug status data available.</p>
-            )}
+      {/* Charts */}
 
-            {statusStats.length > 0 && (
-              <div
-                style={{
-                  width: "100%",
-                  height: 300,
-                }}
+      <section className="dashboard-chart-grid">
+        <div className="dashboard-card">
+          <div className="dashboard-card-header">
+            <div>
+              <h2>Bug Status</h2>
+
+              <p>
+                Current distribution of bugs by workflow status.
+              </p>
+            </div>
+          </div>
+
+          {statusStats.length === 0 ? (
+            <div className="dashboard-empty">
+              No bug status data available.
+            </div>
+          ) : (
+            <div className="dashboard-chart">
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
               >
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
+                <BarChart
+                  data={statusStats}
+                  margin={{
+                    top: 10,
+                    right: 10,
+                    left: -20,
+                    bottom: 0,
+                  }}
                 >
-                  <BarChart data={statusStats}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
 
-                    <XAxis dataKey="_id" />
+                  <XAxis
+                    dataKey="_id"
+                    axisLine={false}
+                    tickLine={false}
+                  />
 
-                    <YAxis allowDecimals={false} />
+                  <YAxis
+                    allowDecimals={false}
+                    axisLine={false}
+                    tickLine={false}
+                  />
 
-                    <Tooltip />
+                  <Tooltip
+                    cursor={{
+                      opacity: 0.08,
+                    }}
+                    contentStyle={{
+                      borderRadius: "10px",
+                      border: "1px solid #e2e8f0",
+                      boxShadow:
+                        "0 8px 24px rgba(15, 23, 42, 0.08)",
+                    }}
+                  />
 
-                    <Bar dataKey="count" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </section>
-
-          {/* Bug Priority Chart */}
-
-          <section style={{ marginTop: "40px" }}>
-            <h2>Bug Priority</h2>
-
-            {priorityStats.length === 0 && (
-              <p>No bug priority data available.</p>
-            )}
-
-            {priorityStats.length > 0 && (
-              <div
-                style={{
-                  width: "100%",
-                  height: 300,
-                }}
-              >
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                >
-                  <BarChart data={priorityStats}>
-                    <CartesianGrid strokeDasharray="3 3" />
-
-                    <XAxis dataKey="_id" />
-
-                    <YAxis allowDecimals={false} />
-
-                    <Tooltip />
-
-                    <Bar dataKey="count" />
+                  <Bar
+                    dataKey="count"
+                    radius={[6, 6, 0, 0]}
+                  />
                 </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </section>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
 
-          {/* Project Health */}
+        <div className="dashboard-card">
+          <div className="dashboard-card-header">
+            <div>
+              <h2>Bug Priority</h2>
 
-          <section style={{ marginTop: "40px" }}>
+              <p>
+                Distribution of bugs by priority level.
+              </p>
+            </div>
+          </div>
+
+          {priorityStats.length === 0 ? (
+            <div className="dashboard-empty">
+              No bug priority data available.
+            </div>
+          ) : (
+            <div className="dashboard-chart">
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+              >
+                <BarChart
+                  data={priorityStats}
+                  margin={{
+                    top: 10,
+                    right: 10,
+                    left: -20,
+                    bottom: 0,
+                  }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
+
+                  <XAxis
+                    dataKey="_id"
+                    axisLine={false}
+                    tickLine={false}
+                  />
+
+                  <YAxis
+                    allowDecimals={false}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+
+                  <Tooltip
+                    cursor={{
+                      opacity: 0.08,
+                    }}
+                    contentStyle={{
+                      borderRadius: "10px",
+                      border: "1px solid #e2e8f0",
+                      boxShadow:
+                        "0 8px 24px rgba(15, 23, 42, 0.08)",
+                    }}
+                  />
+
+                  <Bar
+                    dataKey="count"
+                    radius={[6, 6, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Project Health */}
+
+      <section className="dashboard-card dashboard-project-card">
+        <div className="dashboard-card-header">
+          <div>
             <h2>Project Health</h2>
 
-            {projectHealth.length === 0 && (
-              <p>No project health data available.</p>
-            )}
+            <p>
+              Track bug activity and critical issues across projects.
+            </p>
+          </div>
 
+          <div className="dashboard-project-count">
+            {projectHealth.length}{" "}
+            {projectHealth.length === 1
+              ? "Project"
+              : "Projects"}
+          </div>
+        </div>
+
+        {projectHealth.length === 0 ? (
+          <div className="dashboard-empty">
+            No project health data available.
+          </div>
+        ) : (
+          <div className="project-health-list">
             {projectHealth.map((project) => (
               <div
+                className="project-health-row"
                 key={project._id}
-                style={{
-                  border: "1px solid #e2e8f0",
-                  padding: "20px",
-                  marginBottom: "15px",
-                  borderRadius: "8px",
-                }}
               >
-                <h3>{project._id}</h3>
+                <div className="project-health-main">
+                  <div className="project-health-icon">
+                    ▣
+                  </div>
 
-                <p>
-                  Total Bugs:{" "}
-                  <strong>{project.totalBugs}</strong>
-                </p>
+                  <div>
+                    <h3>{project._id}</h3>
 
-                <p>
-                  Open Bugs:{" "}
-                  <strong>{project.openBugs}</strong>
-                </p>
+                    <p>
+                      {project.totalBugs} total bugs
+                    </p>
+                  </div>
+                </div>
 
-                <p>
-                  In Progress:{" "}
-                  <strong>{project.inProgressBugs}</strong>
-                </p>
+                <div className="project-health-metrics">
+                  <div>
+                    <span>Total</span>
+                    <strong>
+                      {project.totalBugs}
+                    </strong>
+                  </div>
 
-                <p>
-                  Resolved:{" "}
-                  <strong>{project.resolvedBugs}</strong>
-                </p>
+                  <div>
+                    <span>Open</span>
+                    <strong>
+                      {project.openBugs}
+                    </strong>
+                  </div>
 
-                <p>
-                  Critical Bugs:{" "}
-                <strong>{project.criticalBugs}</strong>
-                </p>
+                  <div>
+                    <span>In Progress</span>
+                    <strong>
+                      {project.inProgressBugs}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Resolved</span>
+                    <strong>
+                      {project.resolvedBugs}
+                    </strong>
+                  </div>
+
+                  <div className="project-health-critical">
+                    <span>Critical</span>
+                    <strong>
+                      {project.criticalBugs}
+                    </strong>
+                  </div>
+                </div>
               </div>
             ))}
-          </section>
-        </>
-      )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

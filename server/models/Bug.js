@@ -1,5 +1,42 @@
 const mongoose = require("mongoose");
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    originalName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    storedName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    mimeType: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    size: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+  },
+  {
+    _id: true,
+  }
+);
+
 const bugSchema = new mongoose.Schema(
   {
     title: {
@@ -18,6 +55,12 @@ const bugSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+    },
+
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      required: true,
     },
 
     reportedBy: {
@@ -87,7 +130,7 @@ const bugSchema = new mongoose.Schema(
     },
 
     attachments: {
-      type: [String],
+      type: [attachmentSchema],
       default: [],
     },
 
@@ -104,7 +147,7 @@ const bugSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-}
+  }
 );
 
 const Bug = mongoose.model("Bug", bugSchema);

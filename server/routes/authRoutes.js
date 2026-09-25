@@ -3,6 +3,8 @@ const express = require("express");
 const {
   registerUser,
   loginUser,
+  forgotPassword,
+  resetPassword,
 } = require("../controllers/authController");
 
 const protect = require("../middleware/authMiddleware");
@@ -15,6 +17,12 @@ router.post("/register", registerUser);
 
 // Login
 router.post("/login", loginUser);
+
+// Forgot password
+router.post("/forgot-password", forgotPassword);
+
+// Reset password
+router.post("/reset-password", resetPassword);
 
 // JWT protected route
 router.get("/me", protect, (req, res) => {

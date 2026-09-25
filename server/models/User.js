@@ -31,10 +31,31 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      required: true,
+    },
+
+    passwordResetTokenHash: {
+      type: String,
+      default: null,
+    },
+
+    passwordResetExpiresAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
+);
+
+userSchema.index(
+  { passwordResetTokenHash: 1 },
+  { sparse: true }
 );
 
 const User = mongoose.model("User", userSchema);

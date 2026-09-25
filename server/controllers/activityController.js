@@ -6,6 +6,15 @@ const createActivity = async (req, res) => {
   try {
     const { bugId } = req.params;
     const { action, description } = req.body;
+    const organizationId = req.user?.organizationId;
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
 
     if (!action || !description) {
       return res.status(400).json({
@@ -14,7 +23,10 @@ const createActivity = async (req, res) => {
       });
     }
 
-    const bug = await Bug.findById(bugId);
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -24,7 +36,7 @@ const createActivity = async (req, res) => {
     }
 
     const activity = await Activity.create({
-      bug: bugId,
+      bug: bug._id,
       user: req.user.userId,
       action,
       description,
@@ -54,8 +66,20 @@ const createActivity = async (req, res) => {
 const getActivities = async (req, res) => {
   try {
     const { bugId } = req.params;
+    const organizationId = req.user?.organizationId;
 
-    const bug = await Bug.findById(bugId);
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -65,7 +89,7 @@ const getActivities = async (req, res) => {
     }
 
     const activities = await Activity.find({
-      bug: bugId,
+      bug: bug._id,
     })
       .populate("user", "name email role")
       .sort({ createdAt: 1 });

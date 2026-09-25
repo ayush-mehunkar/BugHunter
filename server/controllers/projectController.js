@@ -1,9 +1,24 @@
 const Project = require("../models/Project");
 
+// Get organization ID from the authenticated JWT.
+const getOrganizationId = (req) => {
+  return req.user?.organizationId || null;
+};
+
 // Create a new project
 const createProject = async (req, res) => {
   try {
-    const { name, description, status, createdBy } = req.body;
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const { name, description, status } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -13,21 +28,25 @@ const createProject = async (req, res) => {
     }
 
     const project = await Project.create({
-      name,
-      description,
-      status,
-      createdBy,
+      name: name.trim(),
+      description: description?.trim() || "",
+      status: status || "Active",
+      organization: organizationId,
+      createdBy: req.user?.userId || null,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Project created successfully",
       project,
     });
   } catch (error) {
-    console.error("Create project error:", error.message);
+    console.error(
+      "Create project error:",
+      error.message
+    );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to create project",
       error: error.message,
@@ -38,19 +57,34 @@ const createProject = async (req, res) => {
 // Get all projects
 const getProjects = async (req, res) => {
   try {
-    const projects = await Project.find()
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const projects = await Project.find({
+      organization: organizationId,
+    })
       .populate("createdBy", "name email role")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: projects.length,
       projects,
     });
   } catch (error) {
-    console.error("Get projects error:", error.message);
+    console.error(
+      "Get projects error:",
+      error.message
+    );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch projects",
       error: error.message,
@@ -61,7 +95,20 @@ const getProjects = async (req, res) => {
 // Get one project by ID
 const getProjectById = async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id).populate(
+    const organizationId = getOrganizationId(req);
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const project = await Project.findOne({
+      _id: req.params.id,
+      organization: organizationId,
+    }).populate(
       "createdBy",
       "name email role"
     );
@@ -73,14 +120,17 @@ const getProjectById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       project,
     });
   } catch (error) {
-    console.error("Get project by ID error:", error.message);
+    console.error(
+      "Get project by ID error:",
+      error.message
+    );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch project",
       error: error.message,

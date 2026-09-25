@@ -6,7 +6,6 @@ const projectSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      unique: true,
     },
 
     description: {
@@ -21,6 +20,12 @@ const projectSchema = new mongoose.Schema(
       default: "Active",
     },
 
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      required: true,
+    },
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -30,6 +35,11 @@ const projectSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+projectSchema.index(
+  { organization: 1, name: 1 },
+  { unique: true }
 );
 
 const Project = mongoose.model("Project", projectSchema);

@@ -1,12 +1,30 @@
 const Bug = require("../models/Bug");
 const AIAnalysis = require("../models/AIAnalysis");
+const {
+  evaluateBugRules,
+} = require("../services/bugRuleEngine");
 
-// Request AI analysis and save it to MongoDB
+// ============================================================
+// REQUEST AI ANALYSIS
+// ============================================================
+
 const requestAIAnalysis = async (req, res) => {
   try {
     const { bugId } = req.params;
+    const organizationId = req.user?.organizationId;
 
-    const bug = await Bug.findById(bugId);
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -14,6 +32,29 @@ const requestAIAnalysis = async (req, res) => {
         message: "Bug not found",
       });
     }
+
+    // --------------------------------------------------------
+    // RULE ENGINE
+    // --------------------------------------------------------
+
+    const ruleEngineResult = evaluateBugRules({
+      title: bug.title || "",
+      description: bug.description || "",
+      environment: bug.environment || "",
+      stepsToReproduce:
+        bug.stepsToReproduce || "",
+      expectedResult:
+        bug.expectedResult || "",
+      actualResult:
+        bug.actualResult || "",
+      tags: Array.isArray(bug.tags)
+        ? bug.tags
+        : [],
+    });
+
+    // --------------------------------------------------------
+    // AI SERVICE
+    // --------------------------------------------------------
 
     const response = await fetch(
       `${process.env.AI_SERVICE_URL}/analyze`,
@@ -24,11 +65,16 @@ const requestAIAnalysis = async (req, res) => {
         },
         body: JSON.stringify({
           title: bug.title || "",
-          description: bug.description || "",
-          environment: bug.environment || "",
-          stepsToReproduce: bug.stepsToReproduce || "",
-          expectedResult: bug.expectedResult || "",
-          actualResult: bug.actualResult || "",
+          description:
+            bug.description || "",
+          environment:
+            bug.environment || "",
+          stepsToReproduce:
+            bug.stepsToReproduce || "",
+          expectedResult:
+            bug.expectedResult || "",
+          actualResult:
+            bug.actualResult || "",
         }),
       }
     );
@@ -41,50 +87,271 @@ const requestAIAnalysis = async (req, res) => {
 
     const aiResult = await response.json();
 
-    if (!aiResult.success || !aiResult.analysis) {
-      throw new Error("Invalid response from AI service");
+    if (
+      !aiResult.success ||
+      !aiResult.analysis
+    ) {
+      throw new Error(
+        "Invalid response from AI service"
+      );
     }
 
     const aiData = aiResult.analysis;
 
-    const analysis = await AIAnalysis.findOneAndUpdate(
-      { bug: bug._id },
-      {
-        bug: bug._id,
-        category: aiData.category || "",
-        priorityRecommendation:
-          ["Low", "Medium", "High", "Critical"].includes(
-            aiData.priority
+    // --------------------------------------------------------
+    // VALIDATE RISK ASSESSMENT
+    // --------------------------------------------------------
+
+    const allowedRiskLevels = [
+      "Low",
+      "Medium",
+      "Medium-High",
+      "High",
+    ];
+
+    const riskAssessment =
+      aiData.riskAssessment &&
+      typeof aiData.riskAssessment ===
+        "object"
+        ? {
+            level:
+              allowedRiskLevels.includes(
+                aiData.riskAssessment.level
+              )
+                ? aiData.riskAssessment.level
+                : "Medium",
+
+            reason:
+              typeof aiData.riskAssessment
+                .reason === "string"
+                ? aiData.riskAssessment.reason.trim()
+                : "",
+          }
+        : {
+            level: "Medium",
+            reason: "",
+          };
+
+    // --------------------------------------------------------
+    // CLEAN RULE ENGINE TRIGGERED RULES
+    // --------------------------------------------------------
+
+    const triggeredRules =
+      Array.isArray(
+        ruleEngineResult.triggeredRules
+      )
+        ? ruleEngineResult.triggeredRules.map(
+            (rule) => ({
+              ruleId:
+                typeof rule.ruleId ===
+                "string"
+                  ? rule.ruleId
+                  : "",
+
+              ruleName:
+                typeof rule.ruleName ===
+                "string"
+                  ? rule.ruleName
+                  : "",
+
+              description:
+                typeof rule.description ===
+                "string"
+                  ? rule.description
+                  : "",
+
+              category:
+                typeof rule.category ===
+                "string"
+                  ? rule.category
+                  : "",
+
+              severityImpact: [
+                "Minor",
+                "Major",
+                "Critical",
+                "Blocker",
+              ].includes(
+                rule.severityImpact
+              )
+                ? rule.severityImpact
+                : null,
+
+              priorityImpact: [
+                "Low",
+                "Medium",
+                "High",
+                "Critical",
+              ].includes(
+                rule.priorityImpact
+              )
+                ? rule.priorityImpact
+                : null,
+
+              matchedKeywords:
+                Array.isArray(
+                  rule.matchedKeywords
+                )
+                  ? rule.matchedKeywords.filter(
+                      (keyword) =>
+                        typeof keyword ===
+                        "string"
+                    )
+                  : [],
+
+              score:
+                typeof rule.score ===
+                  "number" &&
+                rule.score >= 0 &&
+                rule.score <= 100
+                  ? rule.score
+                  : 0,
+
+              explanation:
+                typeof rule.explanation ===
+                "string"
+                  ? rule.explanation
+                  : "",
+            })
           )
-            ? aiData.priority
-            : "Medium",
-        severityRecommendation:
-          ["Minor", "Major", "Critical", "Blocker"].includes(
-            aiData.severity
-          )
-            ? aiData.severity
-            : "Major",
-        summary: aiData.summary || "",
-        possibleCause: aiData.possibleCause || "",
-        suggestedFix: aiData.suggestedFix || "",
-        confidence:
-          typeof aiData.confidence === "number"
-            ? aiData.confidence
-            : 0,
-      },
-      {
-        new: true,
-        upsert: true,
-        runValidators: true,
-      }
-    );
+        : [];
+
+    // --------------------------------------------------------
+    // SAVE AI + RULE ENGINE ANALYSIS
+    // --------------------------------------------------------
+
+    const analysis =
+      await AIAnalysis.findOneAndUpdate(
+        {
+          bug: bug._id,
+        },
+        {
+          bug: bug._id,
+
+          category:
+            aiData.category || "",
+
+          priorityRecommendation:
+            [
+              "Low",
+              "Medium",
+              "High",
+              "Critical",
+            ].includes(
+              aiData.priority
+            )
+              ? aiData.priority
+              : "Medium",
+
+          severityRecommendation:
+            [
+              "Minor",
+              "Major",
+              "Critical",
+              "Blocker",
+            ].includes(
+              aiData.severity
+            )
+              ? aiData.severity
+              : "Major",
+
+          summary:
+            aiData.summary || "",
+
+          possibleCause:
+            aiData.possibleCause || "",
+
+          suggestedFix:
+            aiData.suggestedFix || "",
+
+          confidence:
+            typeof aiData.confidence ===
+            "number"
+              ? aiData.confidence
+              : 0,
+
+          // ==================================================
+          // RULE ENGINE RESULT
+          // ==================================================
+
+          ruleEngine: {
+            engine:
+              ruleEngineResult.engine ||
+              "BugHunter Rule Engine",
+
+            version:
+              ruleEngineResult.version ||
+              "1.2.0",
+
+            rulesEvaluated:
+              typeof ruleEngineResult
+                .rulesEvaluated ===
+              "number"
+                ? ruleEngineResult.rulesEvaluated
+                : 0,
+
+            rulesTriggered:
+              typeof ruleEngineResult
+                .rulesTriggered ===
+              "number"
+                ? ruleEngineResult.rulesTriggered
+                : 0,
+
+            triggeredRules,
+          },
+
+          // ==================================================
+          // AI INVESTIGATION DATA
+          // ==================================================
+
+          investigation:
+            Array.isArray(
+              aiData.investigation
+            )
+              ? aiData.investigation.filter(
+                  (item) =>
+                    typeof item ===
+                    "string"
+                )
+              : [],
+
+          rootCauseHypotheses:
+            Array.isArray(
+              aiData.rootCauseHypotheses
+            )
+              ? aiData.rootCauseHypotheses
+              : [],
+
+          evidence:
+            Array.isArray(
+              aiData.evidence
+            )
+              ? aiData.evidence
+              : [],
+
+          suggestedTests:
+            Array.isArray(
+              aiData.suggestedTests
+            )
+              ? aiData.suggestedTests
+              : [],
+
+          riskAssessment,
+        },
+        {
+          new: true,
+          upsert: true,
+          runValidators: true,
+        }
+      );
 
     bug.aiAnalysis = analysis._id;
     await bug.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "AI analysis generated and saved successfully",
+      message:
+        "AI analysis generated and saved successfully",
       analysis,
     });
   } catch (error) {
@@ -93,21 +360,37 @@ const requestAIAnalysis = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to generate AI analysis",
+      message:
+        "Failed to generate AI analysis",
       error: error.message,
     });
   }
 };
 
+// ============================================================
+// GET AI ANALYSIS
+// ============================================================
 
-// Get AI analysis for a bug
 const getAIAnalysis = async (req, res) => {
   try {
     const { bugId } = req.params;
+    const organizationId =
+      req.user?.organizationId;
 
-    const bug = await Bug.findById(bugId);
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -116,18 +399,20 @@ const getAIAnalysis = async (req, res) => {
       });
     }
 
-    const analysis = await AIAnalysis.findOne({
-      bug: bugId,
-    });
+    const analysis =
+      await AIAnalysis.findOne({
+        bug: bugId,
+      });
 
     if (!analysis) {
       return res.status(404).json({
         success: false,
-        message: "AI analysis not found for this bug",
+        message:
+          "AI analysis not found for this bug",
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       analysis,
     });
@@ -137,25 +422,40 @@ const getAIAnalysis = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch AI analysis",
+      message:
+        "Failed to fetch AI analysis",
       error: error.message,
     });
   }
 };
 
-
 // ============================================================
 // DUPLICATE BUG DETECTION
 // ============================================================
 
-const checkDuplicateBug = async (req, res) => {
+const checkDuplicateBug = async (
+  req,
+  res
+) => {
   try {
     const { bugId } = req.params;
+    const organizationId =
+      req.user?.organizationId;
 
-    // Find the bug we want to check
-    const bug = await Bug.findById(bugId);
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -164,36 +464,47 @@ const checkDuplicateBug = async (req, res) => {
       });
     }
 
-    // Get other bugs from MongoDB
-    const existingBugs = await Bug.find({
-      _id: { $ne: bug._id },
-    })
-      .select("_id title description")
-      .sort({ createdAt: -1 })
-      .limit(50);
-
-    // Convert MongoDB records into the format
-    // expected by the Python AI service
-    const duplicateCandidates = existingBugs.map(
-      (existingBug) => ({
-        id: existingBug._id.toString(),
-        title: existingBug.title || "",
-        description: existingBug.description || "",
+    const existingBugs =
+      await Bug.find({
+        organization: organizationId,
+        _id: {
+          $ne: bug._id,
+        },
       })
-    );
+        .select(
+          "_id title description"
+        )
+        .sort({
+          createdAt: -1,
+        })
+        .limit(50);
 
-    // Send bug + existing bugs to Python AI service
+    const duplicateCandidates =
+      existingBugs.map(
+        (existingBug) => ({
+          id: existingBug._id.toString(),
+          title:
+            existingBug.title || "",
+          description:
+            existingBug.description ||
+            "",
+        })
+      );
+
     const response = await fetch(
       `${process.env.AI_SERVICE_URL}/duplicate-check`,
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type":
+            "application/json",
         },
         body: JSON.stringify({
           title: bug.title || "",
-          description: bug.description || "",
-          existingBugs: duplicateCandidates,
+          description:
+            bug.description || "",
+          existingBugs:
+            duplicateCandidates,
         }),
       }
     );
@@ -204,7 +515,8 @@ const checkDuplicateBug = async (req, res) => {
       );
     }
 
-    const duplicateResult = await response.json();
+    const duplicateResult =
+      await response.json();
 
     if (!duplicateResult.success) {
       throw new Error(
@@ -212,12 +524,15 @@ const checkDuplicateBug = async (req, res) => {
       );
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Duplicate bug check completed successfully",
+      message:
+        "Duplicate bug check completed successfully",
       bugId: bug._id,
-      isDuplicate: duplicateResult.isDuplicate,
-      matches: duplicateResult.matches || [],
+      isDuplicate:
+        duplicateResult.isDuplicate,
+      matches:
+        duplicateResult.matches || [],
     });
   } catch (error) {
     console.error(
@@ -225,14 +540,18 @@ const checkDuplicateBug = async (req, res) => {
       error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to check for duplicate bugs",
+      message:
+        "Failed to check for duplicate bugs",
       error: error.message,
     });
   }
 };
 
+// ============================================================
+// EXPORTS
+// ============================================================
 
 module.exports = {
   requestAIAnalysis,

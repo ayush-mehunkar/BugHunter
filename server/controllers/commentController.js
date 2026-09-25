@@ -6,6 +6,15 @@ const createComment = async (req, res) => {
   try {
     const { text } = req.body;
     const { bugId } = req.params;
+    const organizationId = req.user?.organizationId;
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
 
     if (!text || text.trim() === "") {
       return res.status(400).json({
@@ -14,7 +23,10 @@ const createComment = async (req, res) => {
       });
     }
 
-    const bug = await Bug.findById(bugId);
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -24,15 +36,14 @@ const createComment = async (req, res) => {
     }
 
     const comment = await Comment.create({
-      bug: bugId,
+      bug: bug._id,
       user: req.user.userId,
       text: text.trim(),
     });
 
-    const populatedComment = await Comment.findById(comment._id).populate(
-      "user",
-      "name email role"
-    );
+    const populatedComment = await Comment.findById(
+      comment._id
+    ).populate("user", "name email role");
 
     res.status(201).json({
       success: true,
@@ -54,8 +65,20 @@ const createComment = async (req, res) => {
 const getComments = async (req, res) => {
   try {
     const { bugId } = req.params;
+    const organizationId = req.user?.organizationId;
 
-    const bug = await Bug.findById(bugId);
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
+    const bug = await Bug.findOne({
+      _id: bugId,
+      organization: organizationId,
+    });
 
     if (!bug) {
       return res.status(404).json({
@@ -65,7 +88,7 @@ const getComments = async (req, res) => {
     }
 
     const comments = await Comment.find({
-      bug: bugId,
+      bug: bug._id,
     })
       .populate("user", "name email role")
       .sort({ createdAt: 1 });
@@ -89,9 +112,33 @@ const getComments = async (req, res) => {
 // Delete a comment
 const deleteComment = async (req, res) => {
   try {
+    const organizationId = req.user?.organizationId;
+
+    if (!organizationId) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Your account is not assigned to an organization.",
+      });
+    }
+
     const comment = await Comment.findById(req.params.id);
 
     if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: "Comment not found",
+      });
+    }
+
+    // Verify that the comment belongs to a bug
+    // inside the authenticated user's organization.
+    const bug = await Bug.findOne({
+      _id: comment.bug,
+      organization: organizationId,
+    });
+
+    if (!bug) {
       return res.status(404).json({
         success: false,
         message: "Comment not found",
@@ -107,7 +154,8 @@ const deleteComment = async (req, res) => {
     if (!isOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message: "Access denied. You cannot delete this comment.",
+        message:
+          "Access denied. You cannot delete this comment.",
       });
     }
 

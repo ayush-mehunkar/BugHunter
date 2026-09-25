@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 
 import {
   getBugById,
@@ -20,6 +24,21 @@ import {
   checkDuplicateBug,
 } from "../services/aiService";
 
+import {
+  getAIReview,
+  submitAIReview,
+} from "../services/aiReviewService";
+
+import {
+  getAttachments,
+  uploadAttachments,
+  deleteAttachment,
+} from "../services/attachmentService";
+
+import {
+  getTestExecutions,
+} from "../services/testExecutionService";
+
 import api from "../services/api";
 
 import {
@@ -31,19 +50,34 @@ import { getCurrentUser } from "../utils/authUtils";
 
 function BugDetails() {
   const { id } = useParams();
-
+  const navigate = useNavigate();
   const currentUser = getCurrentUser();
-
-  // ============================================================
-  // STATE
-  // ============================================================
 
   const [bug, setBug] = useState(null);
   const [users, setUsers] = useState([]);
   const [comments, setComments] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [relatedTestExecutions, setRelatedTestExecutions] =
+    useState([]);
   const [aiAnalysis, setAIAnalysis] = useState(null);
+  const [aiReview, setAIReview] = useState(null);
   const [duplicateResult, setDuplicateResult] = useState(null);
+
+  const [aiReviewLoading, setAIReviewLoading] =
+    useState(true);
+  const [aiReviewSaving, setAIReviewSaving] =
+    useState(false);
+  const [aiReviewError, setAIReviewError] =
+    useState("");
+  const [aiReviewComment, setAIReviewComment] =
+    useState("");
+  const [modifiedPriority, setModifiedPriority] =
+    useState("");
+  const [modifiedSeverity, setModifiedSeverity] =
+    useState("");
+  const [modifiedCategory, setModifiedCategory] =
+    useState("");
 
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
@@ -51,14 +85,25 @@ function BugDetails() {
   const [assignedTo, setAssignedTo] = useState("");
 
   const [commentText, setCommentText] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [commentsLoading, setCommentsLoading] = useState(true);
-  const [activitiesLoading, setActivitiesLoading] = useState(true);
+  const [activitiesLoading, setActivitiesLoading] =
+    useState(true);
+  const [attachmentsLoading, setAttachmentsLoading] =
+    useState(true);
+  const [relatedTestsLoading, setRelatedTestsLoading] =
+    useState(true);
   const [aiLoading, setAILoading] = useState(true);
 
   const [aiAnalyzing, setAIAnalyzing] = useState(false);
-  const [duplicateChecking, setDuplicateChecking] = useState(false);
+  const [duplicateChecking, setDuplicateChecking] =
+    useState(false);
+  const [attachmentsUploading, setAttachmentsUploading] =
+    useState(false);
+  const [attachmentDeletingId, setAttachmentDeletingId] =
+    useState("");
 
   const [saving, setSaving] = useState(false);
   const [commentSaving, setCommentSaving] = useState(false);
@@ -66,30 +111,30 @@ function BugDetails() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [commentError, setCommentError] = useState("");
+  const [attachmentError, setAttachmentError] =
+    useState("");
+  const [relatedTestsError, setRelatedTestsError] =
+    useState("");
   const [aiError, setAIError] = useState("");
-  const [duplicateError, setDuplicateError] = useState("");
-
-  // ============================================================
-  // PERMISSIONS
-  // ============================================================
+  const [duplicateError, setDuplicateError] =
+    useState("");
 
   const canAssign = canAssignBugs();
   const canChangeStatus = canChangeBugStatus();
-
-  // ============================================================
-  // LOAD BUG, COMMENTS, ACTIVITIES AND USERS
-  // ============================================================
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         setError("");
+        setRelatedTestsError("");
 
         const requests = [
           getBugById(id),
           getComments(id),
           getActivities(id),
+          getAttachments(id),
+          getTestExecutions(null, id),
         ];
 
         if (canAssign) {
@@ -101,7 +146,9 @@ function BugDetails() {
         const bugResult = results[0];
         const commentsResult = results[1];
         const activitiesResult = results[2];
-        const usersResult = results[3];
+        const attachmentsResult = results[3];
+        const relatedTestsResult = results[4];
+        const usersResult = results[5];
 
         const loadedBug = bugResult.bug;
 
@@ -111,50 +158,48 @@ function BugDetails() {
 
         setBug(loadedBug);
 
-        setComments(
-          commentsResult?.comments || []
+        setComments(commentsResult?.comments || []);
+        setActivities(activitiesResult?.activities || []);
+        setAttachments(
+          attachmentsResult?.attachments || []
         );
 
-        setActivities(
-          activitiesResult?.activities || []
+        setRelatedTestExecutions(
+          relatedTestsResult?.executions || []
         );
 
         if (usersResult) {
-          setUsers(
-            usersResult.data?.users || []
-          );
+          setUsers(usersResult.data?.users || []);
         }
 
         setStatus(loadedBug.status || "");
         setPriority(loadedBug.priority || "");
         setSeverity(loadedBug.severity || "");
-        setAssignedTo(
-          loadedBug.assignedTo || ""
-        );
-      } catch (error) {
-        console.error(
-          "Load bug details error:",
-          error
-        );
+        setAssignedTo(loadedBug.assignedTo || "");
+      } catch (err) {
+        console.error("Load bug details error:", err);
 
         setError(
-          error.response?.data?.message ||
-            error.message ||
+          err.response?.data?.message ||
+            err.message ||
             "Failed to load bug details."
+        );
+
+        setRelatedTestsError(
+          err.response?.data?.message ||
+            "Failed to load related test executions."
         );
       } finally {
         setLoading(false);
         setCommentsLoading(false);
         setActivitiesLoading(false);
+        setAttachmentsLoading(false);
+        setRelatedTestsLoading(false);
       }
     };
 
     loadData();
   }, [id, canAssign]);
-
-  // ============================================================
-  // LOAD AI ANALYSIS
-  // ============================================================
 
   useEffect(() => {
     const loadAIAnalysis = async () => {
@@ -164,20 +209,15 @@ function BugDetails() {
 
         const result = await getAIAnalysis(id);
 
-        setAIAnalysis(
-          result.analysis || null
-        );
-      } catch (error) {
-        if (error.response?.status === 404) {
+        setAIAnalysis(result.analysis || null);
+      } catch (err) {
+        if (err.response?.status === 404) {
           setAIAnalysis(null);
         } else {
-          console.error(
-            "Load AI analysis error:",
-            error
-          );
+          console.error("Load AI analysis error:", err);
 
           setAIError(
-            error.response?.data?.message ||
+            err.response?.data?.message ||
               "Failed to load AI analysis."
           );
         }
@@ -189,9 +229,36 @@ function BugDetails() {
     loadAIAnalysis();
   }, [id]);
 
-  // ============================================================
-  // AI BUG ANALYSIS
-  // ============================================================
+  useEffect(() => {
+    const loadAIReview = async () => {
+      try {
+        setAIReviewLoading(true);
+        setAIReviewError("");
+
+        const result = await getAIReview(id);
+
+        setAIReview(result.review || null);
+      } catch (err) {
+        if (err.response?.status === 404) {
+          setAIReview(null);
+        } else {
+          console.error(
+            "Load AI review error:",
+            err
+          );
+
+          setAIReviewError(
+            err.response?.data?.message ||
+              "Failed to load human review."
+          );
+        }
+      } finally {
+        setAIReviewLoading(false);
+      }
+    };
+
+    loadAIReview();
+  }, [id]);
 
   const handleAnalyzeBug = async () => {
     try {
@@ -201,21 +268,14 @@ function BugDetails() {
 
       const result = await analyzeBug(id);
 
-      setAIAnalysis(
-        result.analysis || null
-      );
+      setAIAnalysis(result.analysis || null);
 
-      setMessage(
-        "AI analysis generated successfully!"
-      );
-    } catch (error) {
-      console.error(
-        "AI analysis error:",
-        error
-      );
+      setMessage("AI analysis generated successfully!");
+    } catch (err) {
+      console.error("AI analysis error:", err);
 
       setAIError(
-        error.response?.data?.message ||
+        err.response?.data?.message ||
           "Failed to generate AI analysis."
       );
     } finally {
@@ -223,9 +283,27 @@ function BugDetails() {
     }
   };
 
-  // ============================================================
-  // APPLY AI RECOMMENDATION
-  // ============================================================
+  const handleCreateAITestCase = (test) => {
+    if (!test) {
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    params.set("aiTest", test);
+
+    if (bug?.project) {
+      params.set("project", bug.project);
+    }
+
+    if (bug?._id) {
+      params.set("bugId", bug._id);
+    }
+
+    navigate(
+      `/test-cases/create?${params.toString()}`
+    );
+  };
 
   const handleApplyAIRecommendation = async (
     field,
@@ -245,42 +323,31 @@ function BugDetails() {
         [field]: value,
       };
 
-      const result = await updateBug(
-        id,
-        updateData
-      );
+      const result = await updateBug(id, updateData);
 
       setBug(result.bug);
-
       setStatus(result.bug.status);
       setPriority(result.bug.priority);
       setSeverity(result.bug.severity);
-      setAssignedTo(
-        result.bug.assignedTo || ""
-      );
+      setAssignedTo(result.bug.assignedTo || "");
 
       setMessage(
         `${
-          field === "priority"
-            ? "Priority"
-            : "Severity"
+          field === "priority" ? "Priority" : "Severity"
         } applied from AI recommendation.`
       );
 
-      const activitiesResult =
-        await getActivities(id);
+      const activitiesResult = await getActivities(id);
 
-      setActivities(
-        activitiesResult.activities || []
-      );
-    } catch (error) {
+      setActivities(activitiesResult.activities || []);
+    } catch (err) {
       console.error(
         "Apply AI recommendation error:",
-        error
+        err
       );
 
       setError(
-        error.response?.data?.message ||
+        err.response?.data?.message ||
           "Failed to apply AI recommendation."
       );
     } finally {
@@ -288,9 +355,56 @@ function BugDetails() {
     }
   };
 
-  // ============================================================
-  // DUPLICATE BUG DETECTION
-  // ============================================================
+  const handleSubmitAIReview = async (decision) => {
+    try {
+      setAIReviewSaving(true);
+      setAIReviewError("");
+      setError("");
+      setMessage("");
+
+      const reviewData = {
+        decision,
+        reviewerComment: aiReviewComment.trim(),
+        modifiedPriority:
+          decision === "Modified"
+            ? modifiedPriority
+            : null,
+        modifiedSeverity:
+          decision === "Modified"
+            ? modifiedSeverity
+            : null,
+        modifiedCategory:
+          decision === "Modified"
+            ? modifiedCategory.trim()
+            : "",
+      };
+
+      const result = await submitAIReview(
+        id,
+        reviewData
+      );
+
+      setAIReview(result.review || null);
+
+      setMessage(
+        `AI review ${
+          decision.toLowerCase()
+        } successfully.`
+      );
+    } catch (err) {
+      console.error(
+        "Submit AI review error:",
+        err
+      );
+
+      setAIReviewError(
+        err.response?.data?.message ||
+          "Failed to submit human review."
+      );
+    } finally {
+      setAIReviewSaving(false);
+    }
+  };
 
   const handleCheckDuplicates = async () => {
     try {
@@ -298,28 +412,23 @@ function BugDetails() {
       setDuplicateError("");
       setDuplicateResult(null);
 
-      const result =
-        await checkDuplicateBug(id);
+      const result = await checkDuplicateBug(id);
 
       setDuplicateResult(result);
-    } catch (error) {
+    } catch (err) {
       console.error(
         "Duplicate bug check error:",
-        error
+        err
       );
 
       setDuplicateError(
-        error.response?.data?.message ||
+        err.response?.data?.message ||
           "Failed to check for duplicate bugs."
       );
     } finally {
       setDuplicateChecking(false);
     }
   };
-
-  // ============================================================
-  // UPDATE BUG
-  // ============================================================
 
   const handleUpdate = async (event) => {
     event.preventDefault();
@@ -342,38 +451,24 @@ function BugDetails() {
         updateData.assignedTo = assignedTo;
       }
 
-      const result = await updateBug(
-        id,
-        updateData
-      );
+      const result = await updateBug(id, updateData);
 
       setBug(result.bug);
-
       setStatus(result.bug.status);
       setPriority(result.bug.priority);
       setSeverity(result.bug.severity);
-      setAssignedTo(
-        result.bug.assignedTo || ""
-      );
+      setAssignedTo(result.bug.assignedTo || "");
 
-      setMessage(
-        "Bug updated successfully!"
-      );
+      setMessage("Bug updated successfully!");
 
-      const activitiesResult =
-        await getActivities(id);
+      const activitiesResult = await getActivities(id);
 
-      setActivities(
-        activitiesResult.activities || []
-      );
-    } catch (error) {
-      console.error(
-        "Update bug error:",
-        error
-      );
+      setActivities(activitiesResult.activities || []);
+    } catch (err) {
+      console.error("Update bug error:", err);
 
       setError(
-        error.response?.data?.message ||
+        err.response?.data?.message ||
           "Failed to update bug. Please try again."
       );
     } finally {
@@ -381,17 +476,11 @@ function BugDetails() {
     }
   };
 
-  // ============================================================
-  // ADD COMMENT
-  // ============================================================
-
   const handleAddComment = async (event) => {
     event.preventDefault();
 
     if (!commentText.trim()) {
-      setCommentError(
-        "Comment cannot be empty."
-      );
+      setCommentError("Comment cannot be empty.");
       return;
     }
 
@@ -410,14 +499,11 @@ function BugDetails() {
       ]);
 
       setCommentText("");
-    } catch (error) {
-      console.error(
-        "Create comment error:",
-        error
-      );
+    } catch (err) {
+      console.error("Create comment error:", err);
 
       setCommentError(
-        error.response?.data?.message ||
+        err.response?.data?.message ||
           "Failed to add comment."
       );
     } finally {
@@ -425,13 +511,7 @@ function BugDetails() {
     }
   };
 
-  // ============================================================
-  // DELETE COMMENT
-  // ============================================================
-
-  const handleDeleteComment = async (
-    commentId
-  ) => {
+  const handleDeleteComment = async (commentId) => {
     try {
       setCommentError("");
 
@@ -439,511 +519,600 @@ function BugDetails() {
 
       setComments((previousComments) =>
         previousComments.filter(
-          (comment) =>
-            comment._id !== commentId
+          (comment) => comment._id !== commentId
         )
       );
-    } catch (error) {
-      console.error(
-        "Delete comment error:",
-        error
-      );
+    } catch (err) {
+      console.error("Delete comment error:", err);
 
       setCommentError(
-        error.response?.data?.message ||
+        err.response?.data?.message ||
           "Failed to delete comment."
       );
     }
   };
 
-  // ============================================================
-  // ACTIVITY STYLES
-  // ============================================================
+  const handleFileSelection = (event) => {
+    const files = Array.from(event.target.files || []);
 
-  const getActivityStyle = (action) => {
-    if (action === "Status Changed") {
-      return {
-        border: "1px solid #bfdbfe",
-        backgroundColor: "#eff6ff",
-        color: "#1e3a8a",
-      };
+    if (files.length > 5) {
+      setAttachmentError(
+        "You can upload a maximum of 5 files at once."
+      );
+      setSelectedFiles(files.slice(0, 5));
+      return;
     }
 
-    if (action === "Priority Changed") {
-      return {
-        border: "1px solid #ddd6fe",
-        backgroundColor: "#f5f3ff",
-        color: "#4c1d95",
-      };
+    setAttachmentError("");
+    setSelectedFiles(files);
+  };
+
+  const handleUploadAttachments = async (event) => {
+    event.preventDefault();
+
+    if (selectedFiles.length === 0) {
+      setAttachmentError(
+        "Please select at least one file."
+      );
+      return;
     }
 
-    if (action === "Severity Changed") {
-      return {
-        border: "1px solid #fed7aa",
-        backgroundColor: "#fff7ed",
-        color: "#9a3412",
-      };
+    try {
+      setAttachmentsUploading(true);
+      setAttachmentError("");
+      setMessage("");
+
+      const result = await uploadAttachments(
+        id,
+        selectedFiles
+      );
+
+      setAttachments((previousAttachments) => [
+        ...previousAttachments,
+        ...(result.attachments || []),
+      ]);
+
+      setBug(result.bug || bug);
+      setSelectedFiles([]);
+
+      const activitiesResult = await getActivities(id);
+      setActivities(activitiesResult.activities || []);
+
+      setMessage(
+        "Attachments uploaded successfully!"
+      );
+    } catch (err) {
+      console.error(
+        "Upload attachments error:",
+        err
+      );
+
+      setAttachmentError(
+        err.response?.data?.message ||
+          err.message ||
+          "Failed to upload attachments."
+      );
+    } finally {
+      setAttachmentsUploading(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (
+    attachment,
+    attachmentIndex
+  ) => {
+    const isLegacyAttachment =
+      typeof attachment === "string";
+
+    if (isLegacyAttachment) {
+      setAttachmentError(
+        "This attachment uses an older format and cannot be deleted from the current interface."
+      );
+      return;
     }
 
-    if (action === "Assignment Changed") {
-      return {
-        border: "1px solid #a7f3d0",
-        backgroundColor: "#ecfdf5",
-        color: "#065f46",
-      };
+    const attachmentId = attachment._id;
+
+    if (!attachmentId) {
+      setAttachmentError(
+        "This attachment does not have a valid ID."
+      );
+      return;
     }
 
-    return {
-      border: "1px solid #e5e7eb",
-      backgroundColor: "#f9fafb",
-      color: "#374151",
+    const confirmed = window.confirm(
+      `Delete "${attachment.originalName || "this attachment"}"?\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setAttachmentDeletingId(attachmentId);
+      setAttachmentError("");
+      setMessage("");
+
+      await deleteAttachment(id, attachmentId);
+
+      setAttachments((previousAttachments) =>
+        previousAttachments.filter(
+          (currentAttachment, currentIndex) =>
+            currentIndex !== attachmentIndex
+        )
+      );
+
+      const activitiesResult = await getActivities(id);
+      setActivities(activitiesResult.activities || []);
+
+      setMessage("Attachment deleted successfully.");
+    } catch (err) {
+      console.error(
+        "Delete attachment error:",
+        err
+      );
+
+      setAttachmentError(
+        err.response?.data?.message ||
+          err.message ||
+          "Failed to delete attachment."
+      );
+    } finally {
+      setAttachmentDeletingId("");
+    }
+  };
+
+  const getStatusClass = (value) => {
+    const classes = {
+      Open: "bug-detail-status-open",
+      "In Progress": "bug-detail-status-progress",
+      Resolved: "bug-detail-status-resolved",
+      Closed: "bug-detail-status-closed",
+      Reopened: "bug-detail-status-reopened",
     };
+
+    return classes[value] || "bug-detail-status-default";
+  };
+
+  const getPriorityClass = (value) => {
+    const classes = {
+      Low: "bug-detail-priority-low",
+      Medium: "bug-detail-priority-medium",
+      High: "bug-detail-priority-high",
+      Critical: "bug-detail-priority-critical",
+    };
+
+    return classes[value] || "bug-detail-priority-default";
+  };
+
+  const getSeverityClass = (value) => {
+    const classes = {
+      Minor: "bug-detail-severity-minor",
+      Major: "bug-detail-severity-major",
+      Critical: "bug-detail-severity-critical",
+      Blocker: "bug-detail-severity-blocker",
+    };
+
+    return classes[value] || "bug-detail-severity-default";
+  };
+
+  const getActivityClass = (action) => {
+    const classes = {
+      "Status Changed": "activity-status",
+      "Priority Changed": "activity-priority",
+      "Severity Changed": "activity-severity",
+      "Assignment Changed":
+        "activity-assignment",
+      "Attachment Added": "activity-attachment",
+      "Attachment Deleted":
+        "activity-attachment",
+    };
+
+    return (
+      classes[action] || "activity-default"
+    );
   };
 
   const getActivityLabel = (action) => {
-    if (action === "Status Changed") {
-      return "STATUS";
+    const labels = {
+      "Status Changed": "STATUS",
+      "Priority Changed": "PRIORITY",
+      "Severity Changed": "SEVERITY",
+      "Assignment Changed": "ASSIGNMENT",
+      "Attachment Added": "ATTACHMENT",
+      "Attachment Deleted": "ATTACHMENT",
+    };
+
+    return labels[action] || "ACTIVITY";
+  };
+
+  const getExecutionClass = (result) => {
+    const classes = {
+      Pass: "bug-details-execution-pass",
+      Fail: "bug-details-execution-fail",
+      Blocked: "bug-details-execution-blocked",
+    };
+
+    return (
+      classes[result] ||
+      "bug-details-execution-default"
+    );
+  };
+
+  const getRiskClass = (level) => {
+    const classes = {
+      Low: "bug-details-risk-low",
+      Medium: "bug-details-risk-medium",
+      "Medium-High":
+        "bug-details-risk-medium-high",
+      High: "bug-details-risk-high",
+    };
+
+    return (
+      classes[level] ||
+      "bug-details-risk-default"
+    );
+  };
+
+  const formatAttachmentSize = (size) => {
+    if (!size || size <= 0) {
+      return "Unknown size";
     }
 
-    if (action === "Priority Changed") {
-      return "PRIORITY";
+    if (size < 1024) {
+      return `${size} B`;
     }
 
-    if (action === "Severity Changed") {
-      return "SEVERITY";
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`;
     }
 
-    if (action === "Assignment Changed") {
-      return "ASSIGNMENT";
+    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const getAttachmentIcon = (mimeType) => {
+    if (mimeType?.startsWith("image/")) {
+      return "🖼️";
     }
 
-    return "ACTIVITY";
+    if (mimeType === "application/pdf") {
+      return "📕";
+    }
+
+    if (
+      mimeType === "text/plain" ||
+      mimeType === "text/csv"
+    ) {
+      return "📄";
+    }
+
+    if (mimeType === "application/zip") {
+      return "🗜️";
+    }
+
+    return "📎";
   };
-
-  // ============================================================
-  // COMMON STYLES
-  // ============================================================
-
-  const cardStyle = {
-    backgroundColor: "#ffffff",
-    border: "1px solid #e2e8f0",
-    borderRadius: "12px",
-    padding: "22px",
-    boxShadow:
-      "0 2px 8px rgba(15, 23, 42, 0.04)",
-  };
-
-  const aiCardStyle = {
-    border: "1px solid #c7d2fe",
-    backgroundColor: "#f8faff",
-    padding: "24px",
-    marginTop: "16px",
-    marginBottom: "20px",
-    borderRadius: "12px",
-    boxShadow:
-      "0 3px 10px rgba(30, 41, 59, 0.06)",
-  };
-
-  const aiBadgeStyle = {
-    display: "inline-block",
-    padding: "5px 11px",
-    borderRadius: "999px",
-    fontSize: "14px",
-    fontWeight: "600",
-  };
-
-  const duplicateCardStyle = {
-    backgroundColor: "#ffffff",
-    border: "1px solid #e2e8f0",
-    borderRadius: "8px",
-    padding: "16px",
-    marginTop: "12px",
-  };
-
-  // ============================================================
-  // LOADING
-  // ============================================================
 
   if (loading) {
     return (
-      <div
-        style={{
-          maxWidth: "900px",
-          margin: "40px auto",
-          padding: "20px",
-        }}
-      >
-        <p>Loading bug details...</p>
+      <div className="bug-details-page">
+        <div className="bug-details-loading">
+          <div className="loading-spinner" />
+          <span>Loading bug details...</span>
+        </div>
       </div>
     );
   }
 
-  // ============================================================
-  // ERROR
-  // ============================================================
-
   if (error && !bug) {
     return (
-      <div
-        style={{
-          maxWidth: "900px",
-          margin: "40px auto",
-          padding: "20px",
-        }}
-      >
-        <p
-          style={{
-            color: "#b91c1c",
-            backgroundColor: "#fef2f2",
-            padding: "12px",
-            borderRadius: "8px",
-          }}
-        >
-          {error}
-        </p>
+      <div className="bug-details-page">
+        <div className="bug-details-error-page">
+          <div className="bug-details-error-icon">
+            !
+          </div>
 
-        <Link to="/bugs">
-          <button type="button">
-            Back to Bugs
-          </button>
-        </Link>
+          <h2>Unable to load bug</h2>
+
+          <p>{error}</p>
+
+          <Link
+            to="/bugs"
+            className="bug-details-back-button"
+          >
+            ← Back to Bugs
+          </Link>
+        </div>
       </div>
     );
   }
 
   if (!bug) {
-    return <p>Bug not found.</p>;
+    return (
+      <div className="bug-details-page">
+        <div className="bug-details-error-page">
+          <h2>Bug not found</h2>
+
+          <Link
+            to="/bugs"
+            className="bug-details-back-button"
+          >
+            ← Back to Bugs
+          </Link>
+        </div>
+      </div>
+    );
   }
 
-  // ============================================================
-  // MAIN UI
-  // ============================================================
+  const assignedUser = users.find(
+    (user) => user._id === bug.assignedTo
+  );
+
+  const investigation =
+    Array.isArray(aiAnalysis?.investigation)
+      ? aiAnalysis.investigation
+      : [];
+
+  const rootCauseHypotheses =
+    Array.isArray(aiAnalysis?.rootCauseHypotheses)
+      ? aiAnalysis.rootCauseHypotheses
+      : [];
+
+  const evidence =
+    Array.isArray(aiAnalysis?.evidence)
+      ? aiAnalysis.evidence
+      : [];
+
+  const suggestedTests =
+    Array.isArray(aiAnalysis?.suggestedTests)
+      ? aiAnalysis.suggestedTests
+      : [];
+
+  const riskLevel =
+    aiAnalysis?.riskAssessment?.level || "Medium";
+
+  const riskReason =
+    aiAnalysis?.riskAssessment?.reason || "";
 
   return (
-    <div
-      style={{
-        maxWidth: "1000px",
-        margin: "0 auto",
-        padding: "30px 20px 60px",
-        color: "#1f2937",
-      }}
-    >
-      {/* ======================================================
-          BACK BUTTON
-      ====================================================== */}
+    <div className="bug-details-page">
+      {/* PAGE HEADER */}
 
-      <Link
-        to="/bugs"
-        style={{
-          textDecoration: "none",
-        }}
-      >
-        <button
-          type="button"
-          style={{
-            backgroundColor: "#f8fafc",
-            color: "#334155",
-            border: "1px solid #cbd5e1",
-            padding: "9px 16px",
-            borderRadius: "7px",
-            cursor: "pointer",
-            fontWeight: "600",
-          }}
-        >
-          ← Back to Bugs
-        </button>
-      </Link>
+      <section className="bug-details-header">
+        <div className="bug-details-header-top">
+          <Link
+            to="/bugs"
+            className="bug-details-back-link"
+          >
+            ← Back to Bugs
+          </Link>
+        </div>
 
-      {/* ======================================================
-          HEADER
-      ====================================================== */}
+        <div className="bug-details-header-content">
+          <div className="bug-details-header-main">
+            <div className="bug-details-eyebrow">
+              Bug #{bug._id.slice(-6)}
+            </div>
 
-      <div
-        style={{
-          marginTop: "24px",
-          marginBottom: "24px",
-        }}
-      >
-        <h1
-          style={{
-            color: "#111827",
-            marginBottom: "10px",
-          }}
-        >
-          {bug.title}
-        </h1>
+            <h1>{bug.title}</h1>
 
-        <p
-          style={{
-            color: "#64748b",
-            fontSize: "14px",
-          }}
-        >
-          <strong>Bug ID:</strong>{" "}
-          {bug._id}
-        </p>
-      </div>
+            <p>
+              Reported in{" "}
+              <strong>{bug.project}</strong>
+            </p>
+          </div>
 
-      {/* ======================================================
-          DESCRIPTION
-      ====================================================== */}
+          <div className="bug-details-header-badges">
+            <span
+              className={`bug-detail-badge ${getStatusClass(
+                bug.status
+              )}`}
+            >
+              {bug.status}
+            </span>
 
-      <div
-        style={{
-          ...cardStyle,
-          marginBottom: "20px",
-        }}
-      >
-        <h2
-          style={{
-            color: "#1e293b",
-            marginTop: 0,
-          }}
-        >
-          Description
-        </h2>
+            <span
+              className={`bug-detail-badge ${getPriorityClass(
+                bug.priority
+              )}`}
+            >
+              {bug.priority} priority
+            </span>
 
-        <p
-          style={{
-            lineHeight: "1.7",
-            color: "#475569",
-          }}
-        >
-          {bug.description}
-        </p>
+            <span
+              className={`bug-detail-badge ${getSeverityClass(
+                bug.severity
+              )}`}
+            >
+              {bug.severity} severity
+            </span>
+          </div>
+        </div>
+      </section>
 
-        <p>
-          <strong>Project:</strong>{" "}
-          <span style={{ color: "#475569" }}>
-            {bug.project}
+      {/* TOP SUMMARY */}
+
+      <section className="bug-details-summary-grid">
+        <div className="bug-details-summary-card">
+          <span className="bug-details-summary-label">
+            Status
           </span>
-        </p>
-      </div>
 
-      <hr
-        style={{
-          border: 0,
-          borderTop: "1px solid #e2e8f0",
-          margin: "25px 0",
-        }}
-      />
+          <strong>{bug.status}</strong>
+        </div>
 
-      {/* ======================================================
-          UPDATE BUG
-      ====================================================== */}
+        <div className="bug-details-summary-card">
+          <span className="bug-details-summary-label">
+            Priority
+          </span>
 
-      <div style={cardStyle}>
-        <h2
-          style={{
-            marginTop: 0,
-            color: "#1e293b",
-          }}
-        >
-          Update Bug
-        </h2>
+          <strong>{bug.priority}</strong>
+        </div>
+
+        <div className="bug-details-summary-card">
+          <span className="bug-details-summary-label">
+            Severity
+          </span>
+
+          <strong>{bug.severity}</strong>
+        </div>
+
+        <div className="bug-details-summary-card">
+          <span className="bug-details-summary-label">
+            Assigned To
+          </span>
+
+          <strong>
+            {assignedUser?.name || "Unassigned"}
+          </strong>
+        </div>
+      </section>
+
+      {/* DESCRIPTION */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              Issue
+            </div>
+
+            <h2>Description</h2>
+          </div>
+        </div>
+
+        <div className="bug-details-description">
+          {bug.description}
+        </div>
+      </section>
+
+      {/* UPDATE BUG */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              Workflow
+            </div>
+
+            <h2>Update Bug</h2>
+
+            <p>
+              Change the workflow state and
+              classification of this issue.
+            </p>
+          </div>
+        </div>
 
         {message && (
-          <p
-            style={{
-              color: "#047857",
-              backgroundColor: "#ecfdf5",
-              border: "1px solid #a7f3d0",
-              padding: "10px 12px",
-              borderRadius: "7px",
-            }}
-          >
+          <div className="bug-details-success">
+            <span>✓</span>
             <strong>{message}</strong>
-          </p>
+          </div>
         )}
 
         {error && (
-          <p
-            style={{
-              color: "#b91c1c",
-              backgroundColor: "#fef2f2",
-              border: "1px solid #fecaca",
-              padding: "10px 12px",
-              borderRadius: "7px",
-            }}
-          >
-            <strong>Error:</strong>{" "}
-            {error}
-          </p>
+          <div className="bug-details-inline-error">
+            <span>!</span>
+            <strong>{error}</strong>
+          </div>
         )}
 
-        <form onSubmit={handleUpdate}>
-          {/* STATUS */}
+        <form
+          onSubmit={handleUpdate}
+          className="bug-details-form"
+        >
+          <div className="bug-details-form-grid">
+            <div className="bug-details-field">
+              <label htmlFor="detail-status">
+                Status
+              </label>
 
-          <div>
-            <label>
-              <strong>Status:</strong>
-            </label>
+              <select
+                id="detail-status"
+                value={status}
+                onChange={(event) =>
+                  setStatus(event.target.value)
+                }
+                disabled={!canChangeStatus}
+              >
+                <option value="Open">Open</option>
+                <option value="In Progress">
+                  In Progress
+                </option>
+                <option value="Resolved">
+                  Resolved
+                </option>
+                <option value="Closed">Closed</option>
+                <option value="Reopened">
+                  Reopened
+                </option>
+              </select>
 
-            <br />
-
-            <select
-              value={status}
-              onChange={(event) =>
-                setStatus(event.target.value)
-              }
-              disabled={!canChangeStatus}
-              style={{
-                marginTop: "6px",
-                padding: "9px",
-                borderRadius: "7px",
-                border: "1px solid #cbd5e1",
-                minWidth: "220px",
-              }}
-            >
-              <option value="Open">
-                Open
-              </option>
-
-              <option value="In Progress">
-                In Progress
-              </option>
-
-              <option value="Resolved">
-                Resolved
-              </option>
-
-              <option value="Closed">
-                Closed
-              </option>
-
-              <option value="Reopened">
-                Reopened
-              </option>
-            </select>
-
-            {!canChangeStatus && (
-              <p>
-                <small
-                  style={{
-                    color: "#64748b",
-                  }}
-                >
-                  You do not have permission
-                  to change bug status.
+              {!canChangeStatus && (
+                <small>
+                  You do not have permission to
+                  change status.
                 </small>
-              </p>
-            )}
-          </div>
+              )}
+            </div>
 
-          <br />
+            <div className="bug-details-field">
+              <label htmlFor="detail-priority">
+                Priority
+              </label>
 
-          {/* PRIORITY */}
+              <select
+                id="detail-priority"
+                value={priority}
+                onChange={(event) =>
+                  setPriority(event.target.value)
+                }
+              >
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Critical">
+                  Critical
+                </option>
+              </select>
+            </div>
 
-          <div>
-            <label>
-              <strong>Priority:</strong>
-            </label>
+            <div className="bug-details-field">
+              <label htmlFor="detail-severity">
+                Severity
+              </label>
 
-            <br />
+              <select
+                id="detail-severity"
+                value={severity}
+                onChange={(event) =>
+                  setSeverity(event.target.value)
+                }
+              >
+                <option value="Minor">Minor</option>
+                <option value="Major">Major</option>
+                <option value="Critical">
+                  Critical
+                </option>
+                <option value="Blocker">
+                  Blocker
+                </option>
+              </select>
+            </div>
 
-            <select
-              value={priority}
-              onChange={(event) =>
-                setPriority(event.target.value)
-              }
-              style={{
-                marginTop: "6px",
-                padding: "9px",
-                borderRadius: "7px",
-                border: "1px solid #cbd5e1",
-                minWidth: "220px",
-              }}
-            >
-              <option value="Low">
-                Low
-              </option>
-
-              <option value="Medium">
-                Medium
-              </option>
-
-              <option value="High">
-                High
-              </option>
-
-              <option value="Critical">
-                Critical
-              </option>
-            </select>
-          </div>
-
-          <br />
-
-          {/* SEVERITY */}
-
-          <div>
-            <label>
-              <strong>Severity:</strong>
-            </label>
-
-            <br />
-
-            <select
-              value={severity}
-              onChange={(event) =>
-                setSeverity(event.target.value)
-              }
-              style={{
-                marginTop: "6px",
-                padding: "9px",
-                borderRadius: "7px",
-                border: "1px solid #cbd5e1",
-                minWidth: "220px",
-              }}
-            >
-              <option value="Minor">
-                Minor
-              </option>
-
-              <option value="Major">
-                Major
-              </option>
-
-              <option value="Critical">
-                Critical
-              </option>
-
-              <option value="Blocker">
-                Blocker
-              </option>
-            </select>
-          </div>
-
-          {/* ASSIGNMENT */}
-
-          {canAssign && (
-            <>
-              <br />
-
-              <div>
-                <label>
-                  <strong>
-                    Assigned To:
-                  </strong>
+            {canAssign && (
+              <div className="bug-details-field">
+                <label htmlFor="detail-assigned">
+                  Assigned To
                 </label>
 
-                <br />
-
                 <select
+                  id="detail-assigned"
                   value={assignedTo}
                   onChange={(event) =>
-                    setAssignedTo(
-                      event.target.value
-                    )
+                    setAssignedTo(event.target.value)
                   }
-                  style={{
-                    marginTop: "6px",
-                    padding: "9px",
-                    borderRadius: "7px",
-                    border:
-                      "1px solid #cbd5e1",
-                    minWidth: "260px",
-                  }}
                 >
                   <option value="">
                     Unassigned
@@ -959,1110 +1128,471 @@ function BugDetails() {
                   ))}
                 </select>
               </div>
-            </>
+            )}
+          </div>
+
+          <div className="bug-details-form-actions">
+            <button
+              type="submit"
+              className="bug-details-save-button"
+              disabled={saving}
+            >
+              {saving
+                ? "Saving..."
+                : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {/* BUG INFORMATION */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              Metadata
+            </div>
+
+            <h2>Bug Information</h2>
+          </div>
+        </div>
+
+        <div className="bug-details-info-grid">
+          <div className="bug-details-info-item">
+            <span>Status</span>
+            <strong>{bug.status}</strong>
+          </div>
+
+          <div className="bug-details-info-item">
+            <span>Priority</span>
+            <strong>{bug.priority}</strong>
+          </div>
+
+          <div className="bug-details-info-item">
+            <span>Severity</span>
+            <strong>{bug.severity}</strong>
+          </div>
+
+          <div className="bug-details-info-item">
+            <span>Project</span>
+            <strong>{bug.project}</strong>
+          </div>
+
+          <div className="bug-details-info-item">
+            <span>Assigned To</span>
+
+            <strong>
+              {assignedUser?.name || "Unassigned"}
+            </strong>
+          </div>
+
+          {bug.environment && (
+            <div className="bug-details-info-item">
+              <span>Environment</span>
+              <strong>{bug.environment}</strong>
+            </div>
           )}
 
-          <br />
+          <div className="bug-details-info-item">
+            <span>Created</span>
 
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              backgroundColor: "#2563eb",
-              color: "#ffffff",
-              border: "none",
-              padding: "10px 18px",
-              borderRadius: "7px",
-              cursor: saving
-                ? "not-allowed"
-                : "pointer",
-              fontWeight: "600",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >
-            {saving
-              ? "Saving..."
-              : "Save Changes"}
-          </button>
-        </form>
-      </div>
-
-      <hr
-        style={{
-          border: 0,
-          borderTop: "1px solid #e2e8f0",
-          margin: "25px 0",
-        }}
-      />
-
-      {/* ======================================================
-          BUG INFORMATION
-      ====================================================== */}
-
-      <div style={cardStyle}>
-        <h2
-          style={{
-            marginTop: 0,
-            color: "#1e293b",
-          }}
-        >
-          Bug Information
-        </h2>
-
-        <p>
-          <strong>Status:</strong>{" "}
-          <span
-            style={{
-              display: "inline-block",
-              padding: "4px 10px",
-              borderRadius: "999px",
-              backgroundColor: "#eff6ff",
-              color: "#1d4ed8",
-              fontWeight: "600",
-            }}
-          >
-            {bug.status}
-          </span>
-        </p>
-
-        <p>
-          <strong>Priority:</strong>{" "}
-          <span
-            style={{
-              display: "inline-block",
-              padding: "4px 10px",
-              borderRadius: "999px",
-              backgroundColor: "#fff7ed",
-              color: "#c2410c",
-              fontWeight: "600",
-            }}
-          >
-            {bug.priority}
-          </span>
-        </p>
-
-        <p>
-          <strong>Severity:</strong>{" "}
-          <span
-            style={{
-              display: "inline-block",
-              padding: "4px 10px",
-              borderRadius: "999px",
-              backgroundColor: "#fef2f2",
-              color: "#b91c1c",
-              fontWeight: "600",
-            }}
-          >
-            {bug.severity}
-          </span>
-        </p>
-
-        <p>
-          <strong>Assigned To:</strong>{" "}
-          {bug.assignedTo
-            ? users.find(
-                (user) =>
-                  user._id ===
-                  bug.assignedTo
-              )?.name ||
-              bug.assignedTo
-            : "Unassigned"}
-        </p>
-
-        {bug.environment && (
-          <div>
-            <p>
-              <strong>
-                Environment:
-              </strong>
-            </p>
-
-            <p
-              style={{
-                color: "#475569",
-              }}
-            >
-              {bug.environment}
-            </p>
+            <strong>
+              {new Date(
+                bug.createdAt
+              ).toLocaleString()}
+            </strong>
           </div>
-        )}
+
+          <div className="bug-details-info-item">
+            <span>Last Updated</span>
+
+            <strong>
+              {new Date(
+                bug.updatedAt
+              ).toLocaleString()}
+            </strong>
+          </div>
+        </div>
 
         {bug.stepsToReproduce && (
-          <div>
-            <p>
-              <strong>
-                Steps to Reproduce:
-              </strong>
-            </p>
-
-            <pre
-              style={{
-                backgroundColor: "#f8fafc",
-                padding: "14px",
-                borderRadius: "8px",
-                border:
-                  "1px solid #e2e8f0",
-                overflowX: "auto",
-                color: "#475569",
-              }}
-            >
-              {bug.stepsToReproduce}
-            </pre>
+          <div className="bug-details-content-block">
+            <h3>Steps to Reproduce</h3>
+            <pre>{bug.stepsToReproduce}</pre>
           </div>
         )}
 
         {bug.expectedResult && (
-          <div>
-            <p>
-              <strong>
-                Expected Result:
-              </strong>
-            </p>
-
-            <p
-              style={{
-                color: "#475569",
-              }}
-            >
-              {bug.expectedResult}
-            </p>
+          <div className="bug-details-content-block">
+            <h3>Expected Result</h3>
+            <p>{bug.expectedResult}</p>
           </div>
         )}
 
         {bug.actualResult && (
-          <div>
-            <p>
-              <strong>
-                Actual Result:
-              </strong>
-            </p>
-
-            <p
-              style={{
-                color: "#475569",
-              }}
-            >
-              {bug.actualResult}
-            </p>
+          <div className="bug-details-content-block">
+            <h3>Actual Result</h3>
+            <p>{bug.actualResult}</p>
           </div>
         )}
 
-        {bug.tags &&
-          bug.tags.length > 0 && (
-            <div>
-              <p>
-                <strong>Tags:</strong>
-              </p>
+        {bug.tags && bug.tags.length > 0 && (
+          <div className="bug-details-content-block">
+            <h3>Tags</h3>
 
-              <p
-                style={{
-                  color: "#475569",
-                }}
+            <div className="bug-details-tags">
+              {bug.tags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* RELATED TEST EXECUTIONS */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              QA Traceability
+            </div>
+
+            <h2>Related Test Executions</h2>
+
+            <p>
+              Test executions linked to this bug are
+              shown here for verification and traceability.
+            </p>
+          </div>
+
+          <div className="bug-details-count-badge">
+            {relatedTestExecutions.length}
+          </div>
+        </div>
+
+        {relatedTestsError && (
+          <div className="bug-details-inline-error">
+            <span>!</span>
+            <strong>{relatedTestsError}</strong>
+          </div>
+        )}
+
+        {relatedTestsLoading ? (
+          <div className="bug-details-section-loading">
+            Loading related test executions...
+          </div>
+        ) : relatedTestExecutions.length === 0 ? (
+          <div className="bug-details-empty-state">
+            <span>✓</span>
+
+            <strong>No related test executions</strong>
+
+            <p>
+              When a failed test execution is linked to
+              this bug, it will appear here.
+            </p>
+
+            <Link
+              to="/test-cases"
+              className="bug-details-related-link"
+            >
+              View Test Cases →
+            </Link>
+          </div>
+        ) : (
+          <div className="bug-details-related-tests-list">
+            {relatedTestExecutions.map((execution) => (
+              <article
+                key={execution._id}
+                className="bug-details-related-test"
               >
-                {bug.tags.join(", ")}
-              </p>
+                <div className="bug-details-related-test-main">
+                  <div className="bug-details-related-test-top">
+                    <span
+                      className={`bug-details-execution-result ${getExecutionClass(
+                        execution.result
+                      )}`}
+                    >
+                      {execution.result}
+                    </span>
+
+                    <time>
+                      {new Date(
+                        execution.createdAt
+                      ).toLocaleString()}
+                    </time>
+                  </div>
+
+                  <h3>
+                    {execution.testCase?.title ||
+                      "Test Case"}
+                  </h3>
+
+                  <p>
+                    <strong>Project:</strong>{" "}
+                    {execution.testCase?.project ||
+                      "—"}
+                  </p>
+
+                  <p>
+                    <strong>Executed By:</strong>{" "}
+                    {execution.executedBy?.name ||
+                      "Unknown User"}
+                  </p>
+
+                  {execution.environment && (
+                    <p>
+                      <strong>Environment:</strong>{" "}
+                      {execution.environment}
+                    </p>
+                  )}
+
+                  {execution.actualResult && (
+                    <div className="bug-details-related-test-result">
+                      <span>Actual Result</span>
+
+                      <p>
+                        {execution.actualResult}
+                      </p>
+                    </div>
+                  )}
+
+                  {execution.notes && (
+                    <div className="bug-details-related-test-notes">
+                      <span>Execution Notes</span>
+
+                      <p>{execution.notes}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bug-details-related-test-actions">
+                  {execution.testCase?._id && (
+                    <Link
+                      to={`/test-cases/${execution.testCase._id}`}
+                      className="bug-details-related-test-link"
+                    >
+                      View Test Case →
+                    </Link>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ATTACHMENTS */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              Evidence
+            </div>
+
+            <h2>Attachments</h2>
+
+            <p>
+              Add screenshots, logs, documents or other
+              evidence related to this bug.
+            </p>
+          </div>
+
+          <div className="bug-details-count-badge">
+            {attachments.length}
+          </div>
+        </div>
+
+        {attachmentError && (
+          <div className="bug-details-inline-error">
+            <span>!</span>
+            <strong>{attachmentError}</strong>
+          </div>
+        )}
+
+        {message && (
+          <div className="bug-details-success">
+            <span>✓</span>
+            <strong>{message}</strong>
+          </div>
+        )}
+
+        <form
+          onSubmit={handleUploadAttachments}
+          className="bug-details-attachment-form"
+        >
+          <div className="bug-details-file-input-wrapper">
+            <label htmlFor="bug-attachments">
+              Select Files
+            </label>
+
+            <input
+              id="bug-attachments"
+              type="file"
+              multiple
+              onChange={handleFileSelection}
+              accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.zip"
+            />
+
+            <small>
+              Maximum 5 files per upload. Maximum 10 MB
+              per file.
+            </small>
+          </div>
+
+          {selectedFiles.length > 0 && (
+            <div className="bug-details-selected-files">
+              <strong>
+                Selected files ({selectedFiles.length})
+              </strong>
+
+              {selectedFiles.map((file) => (
+                <div
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className="bug-details-selected-file"
+                >
+                  <span>📎</span>
+
+                  <span>{file.name}</span>
+
+                  <small>
+                    {(file.size / 1024 / 1024).toFixed(
+                      2
+                    )}{" "}
+                    MB
+                  </small>
+                </div>
+              ))}
             </div>
           )}
 
-        <p
-          style={{
-            color: "#64748b",
-          }}
-        >
-          <strong>Created:</strong>{" "}
-          {new Date(
-            bug.createdAt
-          ).toLocaleString()}
-        </p>
-
-        <p
-          style={{
-            color: "#64748b",
-          }}
-        >
-          <strong>
-            Last Updated:
-          </strong>{" "}
-          {new Date(
-            bug.updatedAt
-          ).toLocaleString()}
-        </p>
-      </div>
-
-      <hr
-        style={{
-          border: 0,
-          borderTop: "1px solid #e2e8f0",
-          margin: "25px 0",
-        }}
-      />
-
-      {/* ======================================================
-          AI BUG ANALYSIS
-      ====================================================== */}
-
-      <div style={aiCardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "15px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                color: "#312e81",
-              }}
-            >
-              🤖 AI Bug Analysis
-            </h2>
-
-            <p
-              style={{
-                color: "#64748b",
-                marginBottom: 0,
-              }}
-            >
-              Let BugHunter analyze this bug
-              and provide recommendations.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleAnalyzeBug}
-            disabled={aiAnalyzing}
-            style={{
-              backgroundColor: "#4f46e5",
-              color: "#ffffff",
-              border: "none",
-              padding: "11px 18px",
-              borderRadius: "8px",
-              cursor: aiAnalyzing
-                ? "not-allowed"
-                : "pointer",
-              fontWeight: "600",
-              opacity: aiAnalyzing
-                ? 0.7
-                : 1,
-            }}
-          >
-            {aiAnalyzing
-              ? "Analyzing Bug..."
-              : "Analyze Bug with AI"}
-          </button>
-        </div>
-
-        {aiError && (
-          <p
-            style={{
-              marginTop: "18px",
-              color: "#b91c1c",
-              backgroundColor: "#fef2f2",
-              border:
-                "1px solid #fecaca",
-              padding: "11px",
-              borderRadius: "7px",
-            }}
-          >
-            <strong>AI Error:</strong>{" "}
-            {aiError}
-          </p>
-        )}
-
-        {aiLoading ? (
-          <p
-            style={{
-              color: "#64748b",
-              marginTop: "20px",
-            }}
-          >
-            Loading AI analysis...
-          </p>
-        ) : aiAnalysis ? (
-          <div
-            style={{
-              marginTop: "22px",
-              paddingTop: "20px",
-              borderTop:
-                "1px solid #e0e7ff",
-            }}
-          >
-            <h3
-              style={{
-                color: "#1e293b",
-                marginTop: 0,
-              }}
-            >
-              AI Analysis Result
-            </h3>
-
-            {/* AI BADGES */}
-
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                flexWrap: "wrap",
-                marginBottom: "20px",
-              }}
-            >
-              <div>
-                <strong>
-                  Category:{" "}
-                </strong>
-
-                <span
-                  style={{
-                    ...aiBadgeStyle,
-                    backgroundColor:
-                      "#e0e7ff",
-                    color: "#3730a3",
-                  }}
-                >
-                  {aiAnalysis.category ||
-                    "Not available"}
-                </span>
-              </div>
-
-              <div>
-                <strong>
-                  Priority:{" "}
-                </strong>
-
-                <span
-                  style={{
-                    ...aiBadgeStyle,
-                    backgroundColor:
-                      "#fef3c7",
-                    color: "#92400e",
-                  }}
-                >
-                  {aiAnalysis.priorityRecommendation ||
-                    "Not available"}
-                </span>
-              </div>
-
-              <div>
-                <strong>
-                  Severity:{" "}
-                </strong>
-
-                <span
-                  style={{
-                    ...aiBadgeStyle,
-                    backgroundColor:
-                      "#fee2e2",
-                    color: "#991b1b",
-                  }}
-                >
-                  {aiAnalysis.severityRecommendation ||
-                    "Not available"}
-                </span>
-              </div>
-
-              <div>
-                <strong>
-                  Confidence:{" "}
-                </strong>
-
-                <span
-                  style={{
-                    ...aiBadgeStyle,
-                    backgroundColor:
-                      "#dcfce7",
-                    color: "#166534",
-                  }}
-                >
-                  {typeof aiAnalysis.confidence ===
-                  "number"
-                    ? `${aiAnalysis.confidence}%`
-                    : "Not available"}
-                </span>
-              </div>
-            </div>
-
-            {/* =================================================
-                AI RECOMMENDATION ACTIONS
-            ================================================= */}
-
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                flexWrap: "wrap",
-                marginBottom: "20px",
-                padding: "14px",
-                backgroundColor:
-                  "#f8fafc",
-                border:
-                  "1px solid #e2e8f0",
-                borderRadius: "8px",
-              }}
-            >
-              <strong
-                style={{
-                  width: "100%",
-                  color: "#334155",
-                }}
-              >
-                AI Recommendations
-              </strong>
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleApplyAIRecommendation(
-                    "priority",
-                    aiAnalysis.priorityRecommendation
-                  )
-                }
-                disabled={
-                  saving ||
-                  !aiAnalysis.priorityRecommendation
-                }
-                style={{
-                  backgroundColor:
-                    "#f59e0b",
-                  color: "#ffffff",
-                  border: "none",
-                  padding:
-                    "9px 14px",
-                  borderRadius: "7px",
-                  cursor: saving
-                    ? "not-allowed"
-                    : "pointer",
-                  fontWeight: "600",
-                  opacity: saving
-                    ? 0.7
-                    : 1,
-                }}
-              >
-                Apply Priority:{" "}
-                {aiAnalysis.priorityRecommendation ||
-                  "Unavailable"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleApplyAIRecommendation(
-                    "severity",
-                    aiAnalysis.severityRecommendation
-                  )
-                }
-                disabled={
-                  saving ||
-                  !aiAnalysis.severityRecommendation
-                }
-                style={{
-                  backgroundColor:
-                    "#dc2626",
-                  color: "#ffffff",
-                  border: "none",
-                  padding:
-                    "9px 14px",
-                  borderRadius: "7px",
-                  cursor: saving
-                    ? "not-allowed"
-                    : "pointer",
-                  fontWeight: "600",
-                  opacity: saving
-                    ? 0.7
-                    : 1,
-                }}
-              >
-                Apply Severity:{" "}
-                {aiAnalysis.severityRecommendation ||
-                  "Unavailable"}
-              </button>
-            </div>
-
-            {/* SUMMARY */}
-
-            <div
-              style={{
-                backgroundColor:
-                  "#ffffff",
-                border:
-                  "1px solid #e2e8f0",
-                borderRadius: "8px",
-                padding: "16px",
-                marginBottom: "12px",
-              }}
-            >
-              <p
-                style={{
-                  marginTop: 0,
-                  color: "#312e81",
-                }}
-              >
-                <strong>
-                  Summary
-                </strong>
-              </p>
-
-              <p
-                style={{
-                  color: "#475569",
-                  lineHeight: "1.6",
-                  marginBottom: 0,
-                }}
-              >
-                {aiAnalysis.summary ||
-                  "No summary available."}
-              </p>
-            </div>
-
-            {/* POSSIBLE CAUSE */}
-
-            <div
-              style={{
-                backgroundColor:
-                  "#ffffff",
-                border:
-                  "1px solid #e2e8f0",
-                borderRadius: "8px",
-                padding: "16px",
-                marginBottom: "12px",
-              }}
-            >
-              <p
-                style={{
-                  marginTop: 0,
-                  color: "#312e81",
-                }}
-              >
-                <strong>
-                  Possible Cause
-                </strong>
-              </p>
-
-              <p
-                style={{
-                  color: "#475569",
-                  lineHeight: "1.6",
-                  marginBottom: 0,
-                }}
-              >
-                {aiAnalysis.possibleCause ||
-                  "No possible cause available."}
-              </p>
-            </div>
-
-            {/* SUGGESTED FIX */}
-
-            <div
-              style={{
-                backgroundColor:
-                  "#ffffff",
-                border:
-                  "1px solid #e2e8f0",
-                borderRadius: "8px",
-                padding: "16px",
-                marginBottom: "12px",
-              }}
-            >
-              <p
-                style={{
-                  marginTop: 0,
-                  color: "#312e81",
-                }}
-              >
-                <strong>
-                  Suggested Fix
-                </strong>
-              </p>
-
-              <p
-                style={{
-                  color: "#475569",
-                  lineHeight: "1.6",
-                  marginBottom: 0,
-                }}
-              >
-                {aiAnalysis.suggestedFix ||
-                  "No suggested fix available."}
-              </p>
-            </div>
-
-            {aiAnalysis.updatedAt && (
-              <p
-                style={{
-                  color: "#94a3b8",
-                  fontSize: "13px",
-                  marginBottom: 0,
-                }}
-              >
-                Analysis updated:{" "}
-                {new Date(
-                  aiAnalysis.updatedAt
-                ).toLocaleString()}
-              </p>
-            )}
-          </div>
-        ) : (
-          <p
-            style={{
-              color: "#64748b",
-              marginTop: "20px",
-            }}
-          >
-            No AI analysis has been
-            generated yet.
-          </p>
-        )}
-      </div>
-
-      <hr
-        style={{
-          border: 0,
-          borderTop: "1px solid #e2e8f0",
-          margin: "25px 0",
-        }}
-      />
-
-      {/* ======================================================
-          DUPLICATE BUG DETECTION
-      ====================================================== */}
-
-      <div style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "15px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                marginTop: 0,
-                marginBottom: "8px",
-                color: "#1e293b",
-              }}
-            >
-              🔎 Duplicate Bug Detection
-            </h2>
-
-            <p
-              style={{
-                color: "#64748b",
-                marginBottom: 0,
-              }}
-            >
-              Check whether this bug is similar
-              to existing bugs in BugHunter.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleCheckDuplicates}
-            disabled={duplicateChecking}
-            style={{
-              backgroundColor: "#7c3aed",
-              color: "#ffffff",
-              border: "none",
-              padding: "11px 18px",
-              borderRadius: "8px",
-              cursor: duplicateChecking
-                ? "not-allowed"
-                : "pointer",
-              fontWeight: "600",
-              opacity: duplicateChecking
-                ? 0.7
-                : 1,
-            }}
-          >
-            {duplicateChecking
-              ? "Checking..."
-              : "Check for Duplicates"}
-          </button>
-        </div>
-
-        {/* DUPLICATE ERROR */}
-
-        {duplicateError && (
-          <p
-            style={{
-              marginTop: "18px",
-              color: "#b91c1c",
-              backgroundColor: "#fef2f2",
-              border:
-                "1px solid #fecaca",
-              padding: "11px",
-              borderRadius: "7px",
-            }}
-          >
-            <strong>
-              Duplicate Check Error:
-            </strong>{" "}
-            {duplicateError}
-          </p>
-        )}
-
-        {/* DUPLICATE RESULT */}
-
-        {duplicateResult && (
-          <div
-            style={{
-              marginTop: "22px",
-              paddingTop: "20px",
-              borderTop:
-                "1px solid #e2e8f0",
-            }}
-          >
-            {duplicateResult.isDuplicate ? (
-              <>
-                <div
-                  style={{
-                    backgroundColor:
-                      "#fff7ed",
-                    border:
-                      "1px solid #fed7aa",
-                    color: "#9a3412",
-                    padding: "14px",
-                    borderRadius: "8px",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <strong>
-                    ⚠ Possible duplicate bug
-                  </strong>
-
-                  <p
-                    style={{
-                      marginBottom: 0,
-                    }}
-                  >
-                    BugHunter found{" "}
-                    {
-                      duplicateResult
-                        .matches?.length || 0
-                    } similar bug(s).
-                  </p>
-                </div>
-
-                {duplicateResult.matches?.map(
-                  (match) => (
-                    <div
-                      key={match.bugId}
-                      style={{
-                        ...duplicateCardStyle,
-                        border:
-                          "1px solid #fed7aa",
-                      }}
-                    >
-                      <p
-                        style={{
-                          marginTop: 0,
-                        }}
-                      >
-                        <strong>
-                          Similar Bug
-                        </strong>
-                      </p>
-
-                      <p
-                        style={{
-                          color: "#1e293b",
-                          fontWeight: "600",
-                        }}
-                      >
-                        {match.title}
-                      </p>
-
-                      <p
-                        style={{
-                          color: "#475569",
-                          lineHeight: "1.6",
-                        }}
-                      >
-                        {match.description}
-                      </p>
-
-                      <p
-                        style={{
-                          marginBottom: 0,
-                        }}
-                      >
-                        <strong>
-                          Similarity:
-                        </strong>{" "}
-                        <span
-                          style={{
-                            display:
-                              "inline-block",
-                            padding:
-                              "4px 9px",
-                            borderRadius:
-                              "999px",
-                            backgroundColor:
-                              "#ede9fe",
-                            color:
-                              "#6d28d9",
-                            fontWeight:
-                              "700",
-                          }}
-                        >
-                          {match.similarity}%
-                        </span>
-                      </p>
-
-                      <p
-                        style={{
-                          color: "#94a3b8",
-                          fontSize: "13px",
-                          marginBottom: 0,
-                          marginTop: "10px",
-                        }}
-                      >
-                        Bug ID:{" "}
-                        {match.bugId}
-                      </p>
-                    </div>
-                  )
-                )}
-              </>
-            ) : (
-              <div
-                style={{
-                  backgroundColor:
-                    "#ecfdf5",
-                  border:
-                    "1px solid #a7f3d0",
-                  color: "#047857",
-                  padding: "14px",
-                  borderRadius: "8px",
-                }}
-              >
-                <strong>
-                  ✓ No duplicate bug found
-                </strong>
-
-                <p
-                  style={{
-                    marginBottom: 0,
-                  }}
-                >
-                  No sufficiently similar
-                  existing bug was detected.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <hr
-        style={{
-          border: 0,
-          borderTop: "1px solid #e2e8f0",
-          margin: "25px 0",
-        }}
-      />
-
-      {/* ======================================================
-          COMMENTS
-      ====================================================== */}
-
-      <div style={cardStyle}>
-        <h2
-          style={{
-            marginTop: 0,
-            color: "#1e293b",
-          }}
-        >
-          Comments
-        </h2>
-
-        {commentError && (
-          <p
-            style={{
-              color: "#b91c1c",
-              backgroundColor: "#fef2f2",
-              border:
-                "1px solid #fecaca",
-              padding: "10px",
-              borderRadius: "7px",
-            }}
-          >
-            <strong>
-              Error:
-            </strong>{" "}
-            {commentError}
-          </p>
-        )}
-
-        <form onSubmit={handleAddComment}>
-          <div>
-            <label>
-              <strong>
-                Add Comment:
-              </strong>
-            </label>
-
-            <br />
-
-            <textarea
-              value={commentText}
-              onChange={(event) =>
-                setCommentText(
-                  event.target.value
-                )
+          <div className="bug-details-attachment-actions">
+            <button
+              type="submit"
+              disabled={
+                attachmentsUploading ||
+                selectedFiles.length === 0
               }
-              placeholder="Write your comment..."
-              rows="4"
-              style={{
-                marginTop: "8px",
-                width: "100%",
-                maxWidth: "700px",
-                padding: "11px",
-                borderRadius: "8px",
-                border:
-                  "1px solid #cbd5e1",
-                boxSizing: "border-box",
-                resize: "vertical",
-              }}
-            />
+              className="bug-details-upload-button"
+            >
+              {attachmentsUploading
+                ? "Uploading..."
+                : "Upload Attachments"}
+            </button>
           </div>
-
-          <br />
-
-          <button
-            type="submit"
-            disabled={commentSaving}
-            style={{
-              backgroundColor: "#334155",
-              color: "#ffffff",
-              border: "none",
-              padding: "10px 18px",
-              borderRadius: "7px",
-              cursor: commentSaving
-                ? "not-allowed"
-                : "pointer",
-              fontWeight: "600",
-              opacity: commentSaving
-                ? 0.7
-                : 1,
-            }}
-          >
-            {commentSaving
-              ? "Adding Comment..."
-              : "Add Comment"}
-          </button>
         </form>
 
-        <br />
+        {attachmentsLoading ? (
+          <div className="bug-details-section-loading">
+            Loading attachments...
+          </div>
+        ) : attachments.length === 0 ? (
+          <div className="bug-details-empty-state">
+            <span>📎</span>
 
-        {commentsLoading ? (
-          <p
-            style={{
-              color: "#64748b",
-            }}
-          >
-            Loading comments...
-          </p>
-        ) : comments.length === 0 ? (
-          <p
-            style={{
-              color: "#64748b",
-            }}
-          >
-            No comments yet.
-          </p>
+            <strong>No attachments yet</strong>
+
+            <p>
+              Upload screenshots, logs or other evidence
+              to help your team investigate this issue.
+            </p>
+          </div>
         ) : (
-          <div>
-            {comments.map((comment) => {
-              const isCommentOwner =
-                currentUser?._id ===
-                comment.user?._id;
+          <div className="bug-details-attachments-list">
+            {attachments.map((attachment, index) => {
+              const isLegacyAttachment =
+                typeof attachment === "string";
 
-              const isAdmin =
-                currentUser?.role ===
-                "admin";
+              const attachmentUrl =
+                isLegacyAttachment
+                  ? attachment
+                  : attachment.url;
+
+              const attachmentName =
+                isLegacyAttachment
+                  ? decodeURIComponent(
+                      attachment.split("/").pop() || ""
+                    )
+                  : attachment.originalName ||
+                    attachment.storedName ||
+                    "Attachment";
+
+              const attachmentType =
+                isLegacyAttachment
+                  ? ""
+                  : attachment.mimeType;
+
+              const attachmentSize =
+                isLegacyAttachment
+                  ? null
+                  : attachment.size;
+
+              const attachmentId =
+                isLegacyAttachment
+                  ? ""
+                  : attachment._id;
+
+              const isDeleting =
+                attachmentDeletingId === attachmentId;
 
               return (
                 <div
-                  key={comment._id}
-                  style={{
-                    borderTop:
-                      "1px solid #e2e8f0",
-                    padding: "16px 0",
-                  }}
+                  key={
+                    `${attachmentUrl}-${index}`
+                  }
+                  className="bug-details-attachment-item"
                 >
-                  <p
-                    style={{
-                      marginTop: 0,
-                    }}
+                  <a
+                    href={attachmentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bug-details-attachment-link"
                   >
-                    <strong>
-                      {comment.user?.name ||
-                        "Unknown User"}
-                    </strong>{" "}
-                    <span
-                      style={{
-                        color: "#64748b",
-                        fontSize: "14px",
-                      }}
-                    >
-                      (
-                      {comment.user?.role ||
-                        "unknown"}
-                      )
+                    <div className="bug-details-attachment-icon">
+                      {getAttachmentIcon(
+                        attachmentType
+                      )}
+                    </div>
+
+                    <div className="bug-details-attachment-info">
+                      <strong>
+                        {attachmentName}
+                      </strong>
+
+                      <span>
+                        {attachmentType ||
+                          "Attachment"}
+                        {attachmentSize
+                          ? ` • ${formatAttachmentSize(
+                              attachmentSize
+                            )}`
+                          : ""}
+                      </span>
+                    </div>
+
+                    <span className="bug-details-attachment-open">
+                      ↗
                     </span>
-                  </p>
+                  </a>
 
-                  <p
-                    style={{
-                      color: "#475569",
-                      lineHeight: "1.6",
-                    }}
-                  >
-                    {comment.text}
-                  </p>
-
-                  <p
-                    style={{
-                      color: "#94a3b8",
-                      fontSize: "13px",
-                    }}
-                  >
-                    {new Date(
-                      comment.createdAt
-                    ).toLocaleString()}
-                  </p>
-
-                  {(isCommentOwner ||
-                    isAdmin) && (
+                  {!isLegacyAttachment && (
                     <button
                       type="button"
+                      className="bug-details-delete-attachment"
                       onClick={() =>
-                        handleDeleteComment(
-                          comment._id
+                        handleDeleteAttachment(
+                          attachment,
+                          index
                         )
                       }
-                      style={{
-                        backgroundColor:
-                          "#ffffff",
-                        color: "#dc2626",
-                        border:
-                          "1px solid #fecaca",
-                        padding:
-                          "6px 12px",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontWeight: "600",
-                      }}
+                      disabled={isDeleting}
+                      aria-label={`Delete ${attachmentName}`}
                     >
-                      Delete
+                      {isDeleting
+                        ? "Deleting..."
+                        : "Delete"}
                     </button>
                   )}
                 </div>
@@ -2070,152 +1600,1023 @@ function BugDetails() {
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      <hr
-        style={{
-          border: 0,
-          borderTop: "1px solid #e2e8f0",
-          margin: "25px 0",
-        }}
-      />
+      {/* AI INVESTIGATION */}
 
-      {/* ======================================================
-          ACTIVITY HISTORY
-      ====================================================== */}
+      <section className="bug-details-ai-card">
+        <div className="bug-details-ai-header">
+          <div>
+            <div className="bug-details-ai-icon">
+              ✦
+            </div>
 
-      <div style={cardStyle}>
-        <h2
-          style={{
-            marginTop: 0,
-            color: "#1e293b",
-          }}
+            <div>
+              <div className="bug-details-section-eyebrow">
+                Intelligence
+              </div>
+
+              <h2>AI Bug Investigation</h2>
+
+              <p>
+                Let BugHunter analyze this issue,
+                investigate possible causes, and suggest
+                verification steps.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAnalyzeBug}
+            disabled={aiAnalyzing}
+            className="bug-details-ai-button"
+          >
+            {aiAnalyzing
+              ? "Analyzing..."
+              : "Analyze with AI"}
+          </button>
+        </div>
+
+        {aiError && (
+          <div className="bug-details-inline-error">
+            <span>!</span>
+            <strong>{aiError}</strong>
+          </div>
+        )}
+
+        {aiLoading ? (
+          <div className="bug-details-ai-loading">
+            <div className="loading-spinner" />
+            <span>Loading AI analysis...</span>
+          </div>
+        ) : aiAnalysis ? (
+          <div className="bug-details-ai-result">
+            {/* AI METRICS */}
+
+            <div className="bug-details-ai-metrics">
+              <div>
+                <span>Category</span>
+                <strong>
+                  {aiAnalysis.category || "—"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Priority</span>
+                <strong>
+                  {aiAnalysis.priorityRecommendation ||
+                    "—"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Severity</span>
+                <strong>
+                  {aiAnalysis.severityRecommendation ||
+                    "—"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Confidence</span>
+                <strong>
+                  {typeof aiAnalysis.confidence ===
+                  "number"
+                    ? `${aiAnalysis.confidence}%`
+                    : "—"}
+                </strong>
+              </div>
+            </div>
+
+            {/* AI RECOMMENDATIONS */}
+
+            <div className="bug-details-ai-actions">
+              <div>
+                <strong>AI Recommendations</strong>
+
+                <span>
+                  Apply recommendations directly to this
+                  bug.
+                </span>
+              </div>
+
+              <div className="bug-details-ai-action-buttons">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleApplyAIRecommendation(
+                      "priority",
+                      aiAnalysis.priorityRecommendation
+                    )
+                  }
+                  disabled={
+                    saving ||
+                    !aiAnalysis.priorityRecommendation
+                  }
+                  className="bug-details-ai-priority-action"
+                >
+                  Apply Priority:{" "}
+                  {aiAnalysis.priorityRecommendation ||
+                    "Unavailable"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleApplyAIRecommendation(
+                      "severity",
+                      aiAnalysis.severityRecommendation
+                    )
+                  }
+                  disabled={
+                    saving ||
+                    !aiAnalysis.severityRecommendation
+                  }
+                  className="bug-details-ai-severity-action"
+                >
+                  Apply Severity:{" "}
+                  {aiAnalysis.severityRecommendation ||
+                    "Unavailable"}
+                </button>
+              </div>
+            </div>
+
+            {/* CORE AI ANALYSIS */}
+
+            <div className="bug-details-ai-text-grid">
+              <div>
+                <h3>Summary</h3>
+
+                <p>
+                  {aiAnalysis.summary ||
+                    "No summary available."}
+                </p>
+              </div>
+
+              <div>
+                <h3>Possible Cause</h3>
+
+                <p>
+                  {aiAnalysis.possibleCause ||
+                    "No possible cause available."}
+                </p>
+              </div>
+
+              <div>
+                <h3>Suggested Fix</h3>
+
+                <p>
+                  {aiAnalysis.suggestedFix ||
+                    "No suggested fix available."}
+                </p>
+              </div>
+            </div>
+
+            {/* ROOT CAUSE HYPOTHESES */}
+
+            {rootCauseHypotheses.length > 0 && (
+              <div className="bug-details-ai-investigation-section">
+                <div className="bug-details-ai-subsection-header">
+                  <div className="bug-details-ai-subsection-icon">
+                    ⚠
+                  </div>
+
+                  <div>
+                    <h3>Root Cause Hypotheses</h3>
+
+                    <p>
+                      Potential explanations based on the
+                      available bug evidence. These are
+                      hypotheses, not confirmed root causes.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bug-details-ai-hypotheses">
+                  {rootCauseHypotheses.map(
+                    (hypothesis, index) => (
+                      <div
+                        key={`${hypothesis}-${index}`}
+                        className="bug-details-ai-hypothesis"
+                      >
+                        <span>
+                          {index + 1}
+                        </span>
+
+                        <p>{hypothesis}</p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* INVESTIGATION */}
+
+            {investigation.length > 0 && (
+              <div className="bug-details-ai-investigation-section">
+                <div className="bug-details-ai-subsection-header">
+                  <div className="bug-details-ai-subsection-icon">
+                    🔎
+                  </div>
+
+                  <div>
+                    <h3>Investigation</h3>
+
+                    <p>
+                      Recommended checks for narrowing down
+                      the cause of this issue.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bug-details-ai-numbered-list">
+                  {investigation.map(
+                    (step, index) => (
+                      <div
+                        key={`${step}-${index}`}
+                        className="bug-details-ai-numbered-item"
+                      >
+                        <span>
+                          {index + 1}
+                        </span>
+
+                        <p>{step}</p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* EVIDENCE */}
+
+            {evidence.length > 0 && (
+              <div className="bug-details-ai-investigation-section">
+                <div className="bug-details-ai-subsection-header">
+                  <div className="bug-details-ai-subsection-icon">
+                    ✓
+                  </div>
+
+                  <div>
+                    <h3>Evidence</h3>
+
+                    <p>
+                      Information BugHunter used while
+                      generating the analysis.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bug-details-ai-evidence-list">
+                  {evidence.map(
+                    (item, index) => (
+                      <div
+                        key={`${item}-${index}`}
+                        className="bug-details-ai-evidence-item"
+                      >
+                        <span>✓</span>
+                        <p>{item}</p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SUGGESTED TESTS */}
+
+            {suggestedTests.length > 0 && (
+              <div className="bug-details-ai-investigation-section">
+                <div className="bug-details-ai-subsection-header">
+                  <div className="bug-details-ai-subsection-icon">
+                    ☑
+                  </div>
+
+                  <div>
+                    <h3>
+                      Suggested Verification Tests
+                    </h3>
+
+                    <p>
+                      Recommended tests to verify the fix
+                      before closing the bug.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bug-details-ai-tests-list">
+                  {suggestedTests.map(
+                    (test, index) => (
+                      <div
+                        key={`${test}-${index}`}
+                        className="bug-details-ai-test-item"
+                      >
+                        <span className="bug-details-ai-test-checkbox">
+                          □
+                        </span>
+
+                        <div className="bug-details-ai-test-content">
+                          <strong>
+                            Test {index + 1}
+                          </strong>
+
+                          <p>{test}</p>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="bug-details-ai-create-test-button"
+                          onClick={() =>
+                            handleCreateAITestCase(
+                              test
+                            )
+                          }
+                        >
+                          Create Test Case
+                        </button>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* RISK ASSESSMENT */}
+
+            <div className="bug-details-ai-risk-section">
+              <div className="bug-details-ai-risk-header">
+                <div>
+                  <div className="bug-details-section-eyebrow">
+                    Release Impact
+                  </div>
+
+                  <h3>Risk Assessment</h3>
+                </div>
+
+                <span
+                  className={`bug-details-ai-risk-badge ${getRiskClass(
+                    riskLevel
+                  )}`}
+                >
+                  {riskLevel}
+                </span>
+              </div>
+
+              <p>
+                {riskReason ||
+                  "No additional risk assessment reason was provided."}
+              </p>
+            </div>
+
+            {aiAnalysis.updatedAt && (
+              <div className="bug-details-ai-updated">
+                Analysis updated{" "}
+                {new Date(
+                  aiAnalysis.updatedAt
+                ).toLocaleString()}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bug-details-ai-empty">
+            <span>✦</span>
+
+            <strong>No AI analysis yet</strong>
+
+            <p>
+              Run AI analysis to get classification,
+              investigation steps, root cause hypotheses,
+              evidence, suggested verification tests and
+              release risk.
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* HUMAN REVIEW */}
+
+      <section className="bug-details-card bug-details-human-review">
+        <div className="bug-details-card-header">
+          <div>
+            <h2>Human Review</h2>
+            <p>
+              Review the AI recommendation before accepting,
+              modifying, or rejecting it.
+            </p>
+          </div>
+
+          {aiReview && (
+            <span className="bug-details-human-review-status">
+              {aiReview.decision}
+            </span>
+          )}
+        </div>
+
+        {aiReviewLoading ? (
+          <div className="bug-details-ai-empty">
+            <span>⏳</span>
+            <strong>Loading human review...</strong>
+          </div>
+        ) : (
+          <>
+            {aiReviewError && (
+              <div className="bug-details-inline-error">
+                <span>!</span>
+                <strong>{aiReviewError}</strong>
+              </div>
+            )}
+
+            {aiAnalysis ? (
+              <>
+                <div className="bug-details-human-review-recommendations">
+                  <div>
+                    <span>AI Priority</span>
+                    <strong>
+                      {aiAnalysis.priorityRecommendation ||
+                        "Unavailable"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>AI Severity</span>
+                    <strong>
+                      {aiAnalysis.severityRecommendation ||
+                        "Unavailable"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>AI Category</span>
+                    <strong>
+                      {aiAnalysis.category ||
+                        aiAnalysis.categoryRecommendation ||
+                        "Unavailable"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="bug-details-human-review-field">
+                  <label htmlFor="ai-review-comment">
+                    Reviewer Comment
+                  </label>
+
+                  <textarea
+                    id="ai-review-comment"
+                    value={aiReviewComment}
+                    onChange={(e) =>
+                      setAIReviewComment(e.target.value)
+                    }
+                    placeholder="Explain your decision or add review notes..."
+                    rows={4}
+                    disabled={aiReviewSaving}
+                  />
+                </div>
+
+                <div className="bug-details-human-review-modified">
+                  <div className="bug-details-human-review-modified-header">
+                    <strong>Modified Recommendation</strong>
+                    <span>
+                      Use these fields only when choosing Modify.
+                    </span>
+                  </div>
+
+                  <div className="bug-details-human-review-grid">
+                    <div className="bug-details-human-review-field">
+                      <label htmlFor="modified-priority">
+                        Priority
+                      </label>
+
+                      <select
+                        id="modified-priority"
+                        value={modifiedPriority}
+                        onChange={(e) =>
+                          setModifiedPriority(e.target.value)
+                        }
+                        disabled={aiReviewSaving}
+                      >
+                        <option value="">
+                          Select priority
+                        </option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                        <option value="Critical">
+                          Critical
+                        </option>
+                      </select>
+                    </div>
+
+                    <div className="bug-details-human-review-field">
+                      <label htmlFor="modified-severity">
+                        Severity
+                      </label>
+
+                      <select
+                        id="modified-severity"
+                        value={modifiedSeverity}
+                        onChange={(e) =>
+                          setModifiedSeverity(e.target.value)
+                        }
+                        disabled={aiReviewSaving}
+                      >
+                        <option value="">
+                          Select severity
+                        </option>
+                        <option value="Minor">Minor</option>
+                        <option value="Major">Major</option>
+                        <option value="Critical">
+                          Critical
+                        </option>
+                        <option value="Blocker">Blocker</option>
+                      </select>
+                    </div>
+
+                    <div className="bug-details-human-review-field">
+                      <label htmlFor="modified-category">
+                        Category
+                      </label>
+
+                      <input
+                        id="modified-category"
+                        type="text"
+                        value={modifiedCategory}
+                        onChange={(e) =>
+                          setModifiedCategory(e.target.value)
+                        }
+                        placeholder="Enter category"
+                        disabled={aiReviewSaving}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bug-details-human-review-actions">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSubmitAIReview("Accepted")
+                    }
+                    disabled={aiReviewSaving}
+                  >
+                    {aiReviewSaving
+                      ? "Saving..."
+                      : "Accept AI Recommendation"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSubmitAIReview("Modified")
+                    }
+                    disabled={
+                      aiReviewSaving ||
+                      !modifiedPriority ||
+                      !modifiedSeverity
+                    }
+                  >
+                    Modify Recommendation
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSubmitAIReview("Rejected")
+                    }
+                    disabled={aiReviewSaving}
+                  >
+                    Reject Recommendation
+                  </button>
+                </div>
+
+                {aiReview && (
+                  <>
+                    <div className="bug-details-human-review-existing">
+                      <strong>Current Review</strong>
+
+                      <div>
+                        <span>Decision:</span>{" "}
+                        {aiReview.decision}
+                    </div>
+
+                    {aiReview.reviewerComment && (
+                        <div>
+                        <span>Comment:</span>{" "}
+                        {aiReview.reviewerComment}
+                        </div>
+                    )}
+
+                      {aiReview.updatedAt && (
+                        <div>
+                          <span>Reviewed:</span>{" "}
+                          {new Date(
+                            aiReview.updatedAt
+                          ).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+
+                    {aiReview.reviewHistory &&
+                    aiReview.reviewHistory.length > 0 && (
+                        <div className="bug-details-human-review-history">
+                          <strong>Review History</strong>
+
+                          <div className="bug-details-human-review-history-list">
+                            {[...aiReview.reviewHistory]
+                              .reverse()
+                              .map((historyItem) => (
+                                <div
+                                  key={historyItem._id}
+                                  className="bug-details-human-review-history-item"
+                                >
+                                  <div className="bug-details-human-review-history-header">
+                                    <span>
+                                      {historyItem.decision}
+                                    </span>
+
+                                    <small>
+                                      {historyItem.createdAt
+                                        ? new Date(
+                                            historyItem.createdAt
+                                          ).toLocaleString()
+                                        : ""}
+                                    </small>
+                                  </div>
+
+                                  {historyItem.reviewer && (
+                                    <div className="bug-details-human-review-history-reviewer">
+                                      {historyItem.reviewer.name ||
+                                        historyItem.reviewer.email ||
+                                        "Reviewer"}
+                                    </div>
+                                  )}
+
+                                  {historyItem.comment && (
+                                    <div className="bug-details-human-review-history-comment">
+                                      {historyItem.comment}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="bug-details-ai-empty">
+                <span>✦</span>
+
+                <strong>No AI analysis available</strong>
+
+                <p>
+                  Run AI analysis first. The human reviewer
+                  will then be able to accept, modify, or
+                  reject the recommendation.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* DUPLICATE DETECTION */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              AI Protection
+            </div>
+
+            <h2>Duplicate Bug Detection</h2>
+
+            <p>
+              Check whether this issue is similar to
+              existing bugs.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCheckDuplicates}
+            disabled={duplicateChecking}
+            className="bug-details-duplicate-button"
+          >
+            {duplicateChecking
+              ? "Checking..."
+              : "Check for Duplicates"}
+          </button>
+        </div>
+
+        {duplicateError && (
+          <div className="bug-details-inline-error">
+            <span>!</span>
+            <strong>{duplicateError}</strong>
+          </div>
+        )}
+
+        {duplicateResult && (
+          <div className="bug-details-duplicate-result">
+            {duplicateResult.isDuplicate ? (
+              <>
+                <div className="bug-details-duplicate-warning">
+                  <span>⚠</span>
+
+                  <div>
+                    <strong>
+                      Possible duplicate bug
+                    </strong>
+
+                    <p>
+                      BugHunter found{" "}
+                      {duplicateResult.matches?.length ||
+                        0}{" "}
+                      similar bug(s).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bug-details-duplicate-list">
+                  {duplicateResult.matches?.map(
+                    (match) => (
+                      <div
+                        key={match.bugId}
+                        className="bug-details-duplicate-item"
+                      >
+                        <div>
+                          <span>Similar Bug</span>
+
+                          <h3>{match.title}</h3>
+
+                          <p>{match.description}</p>
+
+                          <small>
+                            Bug ID: {match.bugId}
+                          </small>
+                        </div>
+
+                        <div className="bug-details-similarity">
+                          <span>Similarity</span>
+
+                          <strong>
+                            {match.similarity}%
+                          </strong>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="bug-details-no-duplicate">
+                <span>✓</span>
+
+                <div>
+                  <strong>
+                    No duplicate bug found
+                  </strong>
+
+                  <p>
+                    No sufficiently similar existing
+                    bug was detected.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* COMMENTS */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              Collaboration
+            </div>
+
+            <h2>Comments</h2>
+
+            <p>
+              Discuss the issue with your team.
+            </p>
+          </div>
+
+          <div className="bug-details-count-badge">
+            {comments.length}
+          </div>
+        </div>
+
+        {commentError && (
+          <div className="bug-details-inline-error">
+            <span>!</span>
+            <strong>{commentError}</strong>
+          </div>
+        )}
+
+        <form
+          onSubmit={handleAddComment}
+          className="bug-details-comment-form"
         >
-          Activity History
-        </h2>
+          <textarea
+            value={commentText}
+            onChange={(event) =>
+              setCommentText(event.target.value)
+            }
+            placeholder="Write a comment for your team..."
+            rows="4"
+          />
 
-        <p
-          style={{
-            color: "#64748b",
-          }}
-        >
-          <small>
-            Changes made to this bug are
-            recorded here automatically.
-          </small>
-        </p>
+          <div className="bug-details-comment-actions">
+            <button
+              type="submit"
+              disabled={commentSaving}
+              className="bug-details-comment-button"
+            >
+              {commentSaving
+                ? "Adding..."
+                : "Add Comment"}
+            </button>
+          </div>
+        </form>
+
+        {commentsLoading ? (
+          <div className="bug-details-section-loading">
+            Loading comments...
+          </div>
+        ) : comments.length === 0 ? (
+          <div className="bug-details-empty-state">
+            <span>◌</span>
+
+            <strong>No comments yet</strong>
+
+            <p>
+              Start the discussion by adding the first
+              comment.
+            </p>
+          </div>
+        ) : (
+          <div className="bug-details-comments">
+            {comments.map((comment) => {
+              const isCommentOwner =
+                currentUser?._id ===
+                comment.user?._id;
+
+              const isAdmin =
+                currentUser?.role === "admin";
+
+              return (
+                <article
+                  key={comment._id}
+                  className="bug-details-comment"
+                >
+                  <div className="bug-details-comment-avatar">
+                    {(comment.user?.name || "U")
+                      .charAt(0)
+                      .toUpperCase()}
+                  </div>
+
+                  <div className="bug-details-comment-content">
+                    <div className="bug-details-comment-header">
+                      <div>
+                        <strong>
+                          {comment.user?.name ||
+                            "Unknown User"}
+                        </strong>
+
+                        <span>
+                          {comment.user?.role ||
+                            "unknown"}
+                        </span>
+                      </div>
+
+                      <time>
+                        {new Date(
+                          comment.createdAt
+                        ).toLocaleString()}
+                      </time>
+                    </div>
+
+                    <p>{comment.text}</p>
+
+                    {(isCommentOwner || isAdmin) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteComment(
+                            comment._id
+                          )
+                        }
+                        className="bug-details-delete-comment"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ACTIVITY HISTORY */}
+
+      <section className="bug-details-card">
+        <div className="bug-details-card-header">
+          <div>
+            <div className="bug-details-section-eyebrow">
+              Audit Trail
+            </div>
+
+            <h2>Activity History</h2>
+
+            <p>
+              Changes made to this bug are recorded
+              automatically.
+            </p>
+          </div>
+
+          <div className="bug-details-count-badge">
+            {activities.length}
+          </div>
+        </div>
 
         {activitiesLoading ? (
-          <p
-            style={{
-              color: "#64748b",
-            }}
-          >
+          <div className="bug-details-section-loading">
             Loading activity history...
-          </p>
+          </div>
         ) : activities.length === 0 ? (
-          <p
-            style={{
-              color: "#64748b",
-            }}
-          >
-            No activity history yet.
-          </p>
+          <div className="bug-details-empty-state">
+            <span>◷</span>
+
+            <strong>
+              No activity history yet
+            </strong>
+
+            <p>
+              Bug changes will appear here
+              automatically.
+            </p>
+          </div>
         ) : (
-          <div>
-            {activities.map(
-              (activity) => (
-                <div
-                  key={activity._id}
-                  style={{
-                    ...getActivityStyle(
-                      activity.action
-                    ),
-                    padding: "14px",
-                    marginBottom:
-                      "12px",
-                    borderRadius: "8px",
-                  }}
-                >
-                  <p
-                    style={{
-                      marginTop: 0,
-                    }}
-                  >
-                    <span
-                      style={{
-                        display:
-                          "inline-block",
-                        padding:
-                          "4px 9px",
-                        borderRadius:
-                          "999px",
-                        backgroundColor:
-                          "rgba(255,255,255,0.7)",
-                        fontSize: "12px",
-                        fontWeight: "700",
-                        letterSpacing:
-                          "0.5px",
-                      }}
-                    >
+          <div className="bug-details-activity-list">
+            {activities.map((activity) => (
+              <article
+                key={activity._id}
+                className={`bug-details-activity ${getActivityClass(
+                  activity.action
+                )}`}
+              >
+                <div className="bug-details-activity-marker">
+                  ●
+                </div>
+
+                <div className="bug-details-activity-content">
+                  <div className="bug-details-activity-top">
+                    <span className="bug-details-activity-label">
                       {getActivityLabel(
                         activity.action
                       )}
                     </span>
-                  </p>
 
-                  <p>
+                    <time>
+                      {new Date(
+                        activity.createdAt
+                      ).toLocaleString()}
+                    </time>
+                  </div>
+
+                <div className="bug-details-activity-user">
                     <strong>
-                      {activity.user
-                        ?.name ||
+                    {activity.user?.name ||
                         "Unknown User"}
-                    </strong>{" "}
-                    <span
-                      style={{
-                        opacity: 0.8,
-                      }}
-                    >
-                      (
-                      {activity.user
-                        ?.role ||
+                    </strong>
+
+                    <span>
+                    {activity.user?.role ||
                         "unknown"}
-                      )
                     </span>
-                  </p>
-
-                  <p>
-                    <strong>
-                      Action:
-                    </strong>{" "}
-                    {activity.action}
-                  </p>
-
-                  <p>
-                    <strong>
-                      Description:
-                    </strong>{" "}
-                    {activity.description}
-                  </p>
-
-                  <p
-                    style={{
-                      marginBottom: 0,
-                      opacity: 0.7,
-                      fontSize: "13px",
-                    }}
-                  >
-                    {new Date(
-                      activity.createdAt
-                    ).toLocaleString()}
-                  </p>
                 </div>
-              )
-            )}
-          </div>
+
+                <p>
+                    <strong>
+                    {activity.action}
+                    </strong>{" "}
+                    — {activity.description}
+                </p>
+                </div>
+            </article>
+            ))}
+        </div>
         )}
-      </div>
+    </section>
     </div>
-  );
+);
 }
 
 export default BugDetails;
