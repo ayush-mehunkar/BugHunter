@@ -1,0 +1,29 @@
+services:
+  ai-service:
+    image: bughunter-ai:1.0
+    container_name: bughunter-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+
+  backend:
+    image: bughunter-backend:1.0
+    container_name: bughunter-backend
+    restart: unless-stopped
+    env_file:
+      - ./server/.env.docker
+    environment:
+      AI_SERVICE_URL: http://ai-service:8000
+    depends_on:
+      - ai-service
+    ports:
+      - "5002:5001"
+
+  frontend:
+    image: bughunter-frontend:1.1
+    container_name: bughunter-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"

@@ -8,3 +8,5 @@ __pycache__/
 .sf/
 uploads/
 server/uploads/
+
+server/.env.docker
